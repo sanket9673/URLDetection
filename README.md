@@ -1,112 +1,143 @@
 # 🛡️ Hybrid Lexical-Graph URL Classifier
 
-A production-ready Enterprise Malicious URL Detection system that combines the power of **LightGBM** (trained on numerical lexical features) with **Domain-Level Graph Intelligence**. The predictions from both models are combined using a tunable weighted hybrid fusion approach to maximize detection accuracy and robustness.
-
-## 🚀 Key Features
-
-* **Advanced Feature Engineering**: Extracts structural, statistical, and suspicious lexical features from raw URLs using optimized, vectorized Pandas operations.
-* **Domain-Level Graph Intelligence**: Computes robust domain-level statistical features and graph probabilities to detect previously unseen malicious domains, preventing common data leakage pitfalls.
-* **High-Performance Modeling**: Utilizes LightGBM configured for multi-class classification, handling class imbalances via balanced class weights and early stopping.
-* **Hybrid Fusion Engine**: Intelligently aggregates LightGBM and Graph model prediction probabilities using a tunable $\alpha$ and $\beta$ weighting formula.
-* **Interactive Dashboard**: A beautiful, real-time analytics UI to inspect individual URLs, visualizing probability distributions, feature breakdowns, and final fusion outputs.
-* **Extensive Evaluation System**: Robust evaluation framework that auto-generates detailed metrics (Macro F1, Precision, Recall), confusion matrices, ROC curves, and feature importance analyses for both the isolated models and the hybrid system.
-* **End-to-End Pipeline**: A fully orchestrated pipeline (`run_pipeline.py`) that runs the entire ML lifecycle with comprehensive logging and error handling.
+<p align="center">
+  <strong>An Enterprise-Grade Machine Learning System for Malicious URL Detection</strong>
+</p>
 
 ---
 
-## 📂 Project Structure
+## 📖 Executive Summary
+The **Hybrid Lexical-Graph URL Classifier** is a robust, production-ready machine learning pipeline designed to classify URLs into multiple categories (e.g., Benign, Phishing, Malware, Defacement) using a dual-faceted approach. 
+
+Traditional URL classification systems often rely solely on lexical (textual) feature engineering, which struggles against sophisticated obfuscation techniques. This project solves that by combining **LightGBM**—trained on carefully crafted numerical lexical features—with **Domain-Level Graph Intelligence**, which acts as a secondary verification engine looking at the statistical reputation of a given domain. Finally, a mathematical **Hybrid Fusion Engine** aggregates both signals to maximize detection accuracy, precision, and recall.
+
+This project was built to demonstrate end-to-end Machine Learning Engineering capabilities: from advanced feature extraction and handling class imbalance, to preventing data leakage, orchestrating a full ML pipeline, and providing a real-time interactive user interface.
+
+---
+
+## 🧠 Core Architecture & System Design
+
+The system is built upon four primary modules working in tandem:
+
+### 1. Lexical Feature Engineering (`src/feature_engineering/`)
+Instead of using raw text embeddings (like TF-IDF or Word2Vec) which can be highly memory-intensive and computationally slow, this engine parses the raw URL structure into mathematically dense numerical features.
+* **Structural Features**: URL length, hostname length, path length.
+* **Statistical Features**: Count of specific characters (`@`, `?`, `-`, `=`, `.`, `http`, `https`).
+* **Suspicious Markers**: Presence of IP addresses (IPv4), shortening services, or unusually high digit-to-letter ratios.
+* **Performance**: Utilizes highly optimized, vectorized pandas operations to ensure memory safety and processing speed.
+
+### 2. Domain-Level Graph Intelligence (`src/graph/`)
+To combat sophisticated malicious domains that might "look" benign lexically, the graph engine computes intelligence based on historical domain behavior.
+* **Mechanism**: Extracts Top-Level Domains (TLDs) and subdomains to track how often a specific domain is associated with malicious behavior.
+* **Leakage Prevention**: Strictly computes domain reputation probabilities **only** from the training dataset. This perfectly simulates a real-world production environment to completely prevent data leakage into the validation/test sets.
+* **Graph Probabilities**: Generates a smooth, normalized probability distribution indicating the likelihood of a domain belonging to each specific threat class.
+
+### 3. High-Performance Modeling (`src/models/`)
+The textual features are fed into a **LightGBM** (Light Gradient Boosting Machine) model.
+* **Why LightGBM?**: Chosen for its high efficiency with tabular data, rapid training speed, low memory footprint, and native support for multi-class classification (`multi_logloss`).
+* **Class Imbalance**: Utilizes `class_weight='balanced'` alongside stratified train/val/test splitting to ensure minority threat classes (like Malware) are detected with the same rigor as the majority Benign class.
+
+### 4. Hybrid Fusion Engine (`src/fusion/`)
+The crowning feature of this architecture is the Decision-Level Fusion Engine. 
+* **The Math**: It aggregates LightGBM's lexical probabilities ($P_{lex}$) and the Graph's domain probabilities ($P_{graph}$) using a dynamic weighted average formula:
+   $$P_{final} = (\alpha \times P_{lex}) + (\beta \times P_{graph})$$ *(where $\beta = 1 - \alpha$)*.
+* **Dynamic Tuning**: The engine auto-tunes the $\alpha$ parameter using the Validation set, selecting the exact optimal balance that yields the highest Macro F1 Score before committing to predictions on the unseen Test set.
+
+---
+
+## 🛠️ Technical Highlights (For the Interviewer)
+
+* **Production-Ready Code Quality**: Written following Software Engineering best practices. Complete with a centralized `config.yaml`, robust exception handling (try-except blocks), absolute paths, and scalable object-oriented/functional design.
+* **Comprehensive Logging System**: Print statements are entirely replaced by Python's `logging` module. Execution trails are safely routed to both the console and a central `logs/pipeline.log` file, ensuring traceability.
+* **Automated Experiment Tracking**: Every full run automatically creates an isolated, timestamped artifact directory (e.g., `results/experiment_20260302_053610/`). It saves trained models, metadata, JSON metric files, Confusion Matrices, ROC Curves, and Feature Importance charts for reproducible research.
+* **Interactive UI (Dashboard)**: A sleek real-time application (`app/dashboard.py`) built to immediately validate the model against new, unseen URLs.
+
+---
+
+## 📂 Repository Structure
 
 ```text
 Lexical-Graph-URL-Classifier/
 ├── app/
-│   └── dashboard.py               # Interactive UI for real-time URL classification
+│   └── dashboard.py               # Streamlit application for real-time URL inference
 ├── config/
-│   └── config.yaml                # Centralized configuration parameters
+│   └── config.yaml                # Centralized hyperparameters and pipeline configuration
 ├── data/                          # Data directory (ignored in git)
-│   ├── raw/
-│   │   └── malicious_phish.csv    # Raw dataset
-│   └── processed/                 # Engineered features & graph data
-├── logs/                          # System execution logs 
-├── models/                        # Saved LightGBM & Fusion models
-├── outputs/                       # Final prediction metrics, plots, and models
-├── results/                       # Timestamped experiment tracking & artifacts
-├── src/                           # Core source code
-│   ├── feature_engineering/       # Lexical feature extraction pipeline
-│   ├── graph/                     # Domain-level intelligence computation
-│   ├── models/                    # Model training logic (LightGBM)
-│   ├── fusion/                    # Hybrid weighting engine
-│   └── evaluation/                # Performance analytics and visualizations
-├── run_pipeline.py                # Main orchestration script
-├── requirements.txt               # Dependencies
-└── .gitignore                     # Ignored files & secrets
+│   ├── raw/                       # Expected raw input (e.g., malicious_phish.csv)
+│   └── processed/                 # Output of the feature engineering & graph pipelines
+├── logs/                          # System execution logs (pipeline.log)
+├── models/                        # Serialized LightGBM & Fusion artifacts (.pkl)
+├── outputs/                       # Final visual outputs & system metrics
+├── results/                       # Automated, timestamped experiment tracking logs
+├── src/                           # Core Machine Learning codebase
+│   ├── feature_engineering/       # Lexical rules & vectorized feature builder
+│   ├── graph/                     # Domain statistics & probability intelligence
+│   ├── models/                    # LightGBM training, validation, and serialization
+│   ├── fusion/                    # Hyperparameter tuning for decision fusion
+│   ├── evaluation/                # Analytics engine (ROC, Feature Importance, Confusion Matrix)
+│   ├── logger_config.py           # Central logging initialization
+│   └── utils.py                   # Helper functions (OS pathing, saving artifacts)
+├── run_pipeline.py                # The central orchestrator for the ML lifecycle
+└── requirements.txt               # Required Python packages
 ```
 
 ---
 
-## 🛠️ Installation & Setup
+## � Setup & Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/sanket9673/Lexical-Graph-URL-Classifier.git
-   cd Lexical-Graph-URL-Classifier
-   ```
+**1. Clone the repository**
+```bash
+git clone https://github.com/sanket9673/Lexical-Graph-URL-Classifier.git
+cd Lexical-Graph-URL-Classifier
+```
 
-2. **Create a virtual environment** (Recommended)
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-   ```
+**2. Setup Virtual Environment**
+```bash
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+```
 
-3. **Install the required dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+**3. Install Dependencies**
+```bash
+pip install -r requirements.txt
+```
 
-4. **Prepare the Data**
-   Place your raw dataset inside the `data/raw/` registry. 
-   Expected dataset: `malicious_phish.csv` containing columns for URLs and their corresponding labels.
+**4. Data Preparation**
+Place the raw dataset inside the `data/raw/` registry. 
+*Expected format:* `malicious_phish.csv` containing columns for `url` and `type` (the label).
 
 ---
 
-## 🏃‍♂️ Usage
+## 🏃‍♂️ Executing the ML Pipeline
 
-### 1. Run the Full Machine Learning Pipeline
-Execute the entire pipeline from end-to-end to process data, extract graph features, train the LightGBM model, tune the fusion weights, and evaluate the system.
+To trigger the end-to-end Machine Learning pipeline—which includes feature building, graph computation, model training, hyperparameter tuning, model fusion, and experiment evaluations—simply run the orchestrator script:
 
 ```bash
 python run_pipeline.py
 ```
 
-**Pipeline Stages:**
-1. **Feature Builder**: Cleans URLs and engineers structural numerical features.
-2. **Model Training**: Trains LightGBM and logs performance metrics.
-3. **Graph Module**: Generates domain intelligence signatures.
-4. **Hybrid Fusion**: Computes optimal weights and evaluates overarching performance.
+When this script finishes, it will print a final summarized report to the console detailing the **Macro F1 Scores** across the isolated LightGBM model versus the Hybrid Fusion system, definitively quantifying the improvement.
 
-### 2. Launch the Interactive Dashboard
-Spin up the real-time analytics UI to test custom URLs against your newly trained models.
+---
+
+## 📊 Evaluation Metrics & Visualizations
+Upon a successful pipeline run, navigate to the `results/experiment_{TIMESTAMP}/` directory to inspect the generated analytics:
+- **`plots/lightgbm_roc.png`**: ROC curves detailing True Positive vs False Positive rates for each individual threat class.
+- **`confusion_matrices/lightgbm_confusion.png`**: Heatmap exposing exactly where the model struggles (e.g., misclassifying Malware as Phishing).
+- **`feature_importance/top_features.csv`**: A ranked list indicating which engineered features (e.g., `url_length`, `count_@`) provided the most information gain to the LightGBM trees.
+
+---
+
+## ⚡ Launching the Interactive Dashboard
+To interact with the trained models and test live URLs, launch the dashboard:
 
 ```bash
 streamlit run app/dashboard.py
 ```
-*(If the dashboard uses Gradio instead of Streamlit: `python app/dashboard.py`)*
+This UI provides immediate feedback, including Final Predicted Class, Confidence Percentages, and a transparency breakdown of the computed Lexical Features.
 
 ---
 
-## 📊 Evaluation & Logging
-The project employs a robust tracking system.
-* Every run of the pipeline will log cleanly to `logs/pipeline.log`.
-* Each execution automatically generates an isolated experiment directory in `results/experiment_{TIMESTAMP}/` storing:
-   * **Metrics**: JSON logs of confusion matrices and detailed F1/Accuracy scores.
-   * **Plots**: ROC Curves, Feature Importance visual charts.
-   * **Summaries**: Human-readable text reports of the entire experiment.
-
----
-
-## 🤝 Contributing
-Contributions are welcome! Please feel free to open a Pull Request or issue for architectural improvements, bug fixes, or analytical enhancements.
-
----
-
-## 📝 License
-This project is proprietary / open-sourced under the MIT License.
+## 🤝 Contact & Contributions
+Designed and deployed by [Sanket Chavhan](https://github.com/sanket9673). 
+Open to contributions and feedback regarding the architecture or model performance.
