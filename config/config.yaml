@@ -1,0 +1,16 @@
+pipeline:
+  name: "Hybrid LightGBM + Graph Intelligence"
+  version: "1.0.0"
+
+data:
+  raw_data_path: "data/raw/"
+  processed_data_path: "data/processed/"
+
+model:
+  lightgbm:
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 100
+  graph:
+    hidden_dim: 128
+    learning_rate: 0.001
