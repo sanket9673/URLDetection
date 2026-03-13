@@ -136,9 +136,17 @@ if submitted and url_input:
     
     try:
         with st.spinner("Extracting structural, statistical, and semantic elements..."):
+            import re
+            
+            # Realign user input to match the training dataset structural bias 
+            # (which contains few http prefixes for benign URLs). 
+            # This fundamentally corrects false positives on benign safe websites.
+            realignment_url = re.sub(r'(?i)^https?://(www\.)?', '', url_input)
+            realignment_url = realignment_url.rstrip('/')
+            
             # Extract features (using our backend FeatureBuilder pipeline)
             logger.info("Running parallel feature extraction pipeline...")
-            df_input = pd.DataFrame([{'url': url_input, 'type': 'unknown'}]) 
+            df_input = pd.DataFrame([{'url': realignment_url, 'type': 'unknown'}]) 
             builder = FeatureBuilder(raw_data_path="", output_path="")
             df_clean = builder.validate_and_clean(df_input)
             
@@ -162,22 +170,45 @@ if submitted and url_input:
             domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ext.suffix
             tld = ext.suffix
             
-            # Fallback equal probabilities
-            P_graph = np.array([0.25, 0.25, 0.25, 0.25]) 
+            # Define universally trusted domains to counteract dataset poisoning 
+            # (e.g. users uploading malware to Google Drive flags 'google.com' as malware in the dataset)
+            TRUSTED_DOMAINS = {
+                'google.com', 'chatgpt.com', 'openai.com', 'github.com', 'microsoft.com', 
+                'apple.com', 'amazon.com', 'facebook.com', 'linkedin.com', 'youtube.com', 
+                'wikipedia.org', 'bing.com', 'yahoo.com', 'instagram.com', 'whatsapp.com'
+            }
             
-            if graph_df is not None:
+            # Global dataset priors (approx: 65% benign, 15% defacement, 15% phishing, 5% malware)
+            GLOBAL_PRIOR = np.array([0.65, 0.15, 0.15, 0.05])
+            
+            # Default fallback
+            P_graph = np.copy(GLOBAL_PRIOR)
+            
+            if domain in TRUSTED_DOMAINS:
+                logger.info(f"Domain '{domain}' identified in Global Trust Whitelist. Enforcing benign bias.")
+                P_graph = np.array([0.95, 0.01, 0.02, 0.02])
+            elif graph_df is not None:
                 graph_cols = [f'domain_class_{c}_prob' for c in range(4)]
                 tld_cols = [f'tld_class_{c}_prob' for c in range(4)]
                 
                 domain_match = graph_df[graph_df['registered_domain'] == domain]
                 if not domain_match.empty:
-                    P_graph = domain_match[graph_cols].iloc[0].values
-                    logger.info(f"Found specific node graph projection for domain: {domain}")
+                    freq = domain_match['domain_frequency'].iloc[0]
+                    # If frequency is very low, it's noisy, so we blend it with global prior
+                    raw_graph = domain_match[graph_cols].iloc[0].values
+                    if freq < 5:
+                        P_graph = (raw_graph + GLOBAL_PRIOR) / 2.0
+                        logger.info(f"Found specific node graph projection for domain: {domain} (Low freq: {freq}, smoothed)")
+                    else:
+                        P_graph = raw_graph
+                        logger.info(f"Found specific node graph projection for domain: {domain} (Freq: {freq})")
                 else:
                     tld_match = graph_df[graph_df['tld'] == tld]
                     if not tld_match.empty:
-                        P_graph = tld_match[tld_cols].iloc[0].values
-                        logger.info(f"Node graph domain missing, utilizing TLD fallback projection: {tld}")
+                        raw_tld = tld_match[tld_cols].iloc[0].values
+                        # Blend TLD probability with Global Prior to prevent harsh penalization (e.g., heavily penalizing all .coms)
+                        P_graph = (raw_tld * 0.1) + (GLOBAL_PRIOR * 0.9)
+                        logger.info(f"Node graph domain missing, utilizing smoothed TLD fallback projection: {tld}")
                 
                 # Safeguard normalization
                 P_graph = P_graph / (np.sum(P_graph) + 1e-9)

@@ -4,6 +4,10 @@ import json
 import subprocess
 import logging
 
+# orchestration entrypoint (runs feature generation → model training script → 
+# -> graph features → fusion → prints final metrics).
+
+
 try:
     from src.logger_config import get_logger
     logger = get_logger(__name__)
