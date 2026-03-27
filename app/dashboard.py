@@ -123,203 +123,219 @@ except Exception as e:
     st.stop()
 
 # 1. URL input field
-st.markdown("<div class='card'>", unsafe_allow_html=True)
-with st.form("url_analysis_form"):
-    url_input = st.text_input("Target URL for Threat Analysis:", placeholder="https://example.com/login", help="Input the full URL including HTTP/HTTPS protocols.")
-    submitted = st.form_submit_button("Engage Analysis Hybrid Fusion", use_container_width=True)
-st.markdown("</div>", unsafe_allow_html=True)
 
-# 2. On submit
-if submitted and url_input:
-    logger.info(f"Analysis triggered for Target URL: {url_input}")
-    start_time = time.time()
+tab1, tab2 = st.tabs(["🛡️ Live Threat Analysis", "🕸️ Graph Intelligence Architecture (Demo)"])
+
+with tab2:
+    st.markdown("<h2 style=\"color: #f8fafc;\">Domain Graph Propagation Mechanism</h2>", unsafe_allow_html=True)
+    st.markdown("<p style=\"color: #94a3b8;\">This interactive topological visualization demonstrates how malicious risk aggregates at the Domain and TLD levels, which directly assists the Hybrid Fusion engine in detecting phishing campaigns that rotate through subdomains.</p>", unsafe_allow_html=True)
+    html_path = os.path.join(project_root, "outputs", "reports", "domain_graph_concept.html")
+    if os.path.exists(html_path):
+        import streamlit.components.v1 as components
+        with open(html_path, "r", encoding="utf-8") as f:
+            source_code = f.read()
+        st.markdown("<div class=\"card\" style=\"padding: 0px; overflow: hidden;\">", unsafe_allow_html=True)
+        components.html(source_code, height=650, scrolling=False)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+with tab1:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    with st.form("url_analysis_form"):
+        url_input = st.text_input("Target URL for Threat Analysis:", placeholder="https://example.com/login", help="Input the full URL including HTTP/HTTPS protocols.")
+        submitted = st.form_submit_button("Engage Analysis Hybrid Fusion", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
     
-    try:
-        with st.spinner("Extracting structural, statistical, and semantic elements..."):
-            import re
-            
-            # Realign user input to match the training dataset structural bias 
-            # (which contains few http prefixes for benign URLs). 
-            # This fundamentally corrects false positives on benign safe websites.
-            realignment_url = re.sub(r'(?i)^https?://(www\.)?', '', url_input)
-            realignment_url = realignment_url.rstrip('/')
-            
-            # Extract features (using our backend FeatureBuilder pipeline)
-            logger.info("Running parallel feature extraction pipeline...")
-            df_input = pd.DataFrame([{'url': realignment_url, 'type': 'unknown'}]) 
-            builder = FeatureBuilder(raw_data_path="", output_path="")
-            df_clean = builder.validate_and_clean(df_input)
-            
-            if df_clean.empty:
-                logger.error("URL failed validation constraints.")
-                st.error("Invalid URL format or URL could not be parsed.")
-                st.stop()
+    # 2. On submit
+    if submitted and url_input:
+        logger.info(f"Analysis triggered for Target URL: {url_input}")
+        start_time = time.time()
+        
+        try:
+            with st.spinner("Extracting structural, statistical, and semantic elements..."):
+                import re
                 
-            df_features = builder.build_features(df_clean)
-            
-            # Align features exactly with LightGBM's training parameters
-            model_features = df_features[model.feature_name_]
-            
-            # Load trained model to fetch prediction probabilities
-            logger.info("Executing LightGBM inference model...")
-            P_feature = model.predict_proba(model_features)[0]
-            
-            # Compute graph domain probabilities via extraction matching
-            logger.info("Computing scalable graph domain probabilities...")
-            ext = tldextract.extract(url_input)
-            domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ext.suffix
-            tld = ext.suffix
-            
-            # Define universally trusted domains to counteract dataset poisoning 
-            # (e.g. users uploading malware to Google Drive flags 'google.com' as malware in the dataset)
-            TRUSTED_DOMAINS = {
-                'google.com', 'chatgpt.com', 'openai.com', 'github.com', 'microsoft.com', 
-                'apple.com', 'amazon.com', 'facebook.com', 'linkedin.com', 'youtube.com', 
-                'wikipedia.org', 'bing.com', 'yahoo.com', 'instagram.com', 'whatsapp.com'
-            }
-            
-            # Global dataset priors (approx: 65% benign, 15% defacement, 15% phishing, 5% malware)
-            GLOBAL_PRIOR = np.array([0.65, 0.15, 0.15, 0.05])
-            
-            # Default fallback
-            P_graph = np.copy(GLOBAL_PRIOR)
-            
-            if domain in TRUSTED_DOMAINS:
-                logger.info(f"Domain '{domain}' identified in Global Trust Whitelist. Enforcing benign bias.")
-                P_graph = np.array([0.95, 0.01, 0.02, 0.02])
-            elif graph_df is not None:
-                graph_cols = [f'domain_class_{c}_prob' for c in range(4)]
-                tld_cols = [f'tld_class_{c}_prob' for c in range(4)]
+                # Realign user input to match the training dataset structural bias 
+                # (which contains few http prefixes for benign URLs). 
+                # This fundamentally corrects false positives on benign safe websites.
+                realignment_url = re.sub(r'(?i)^https?://(www\.)?', '', url_input)
+                realignment_url = realignment_url.rstrip('/')
                 
-                domain_match = graph_df[graph_df['registered_domain'] == domain]
-                if not domain_match.empty:
-                    freq = domain_match['domain_frequency'].iloc[0]
-                    # If frequency is very low, it's noisy, so we blend it with global prior
-                    raw_graph = domain_match[graph_cols].iloc[0].values
-                    if freq < 5:
-                        P_graph = (raw_graph + GLOBAL_PRIOR) / 2.0
-                        logger.info(f"Found specific node graph projection for domain: {domain} (Low freq: {freq}, smoothed)")
+                # Extract features (using our backend FeatureBuilder pipeline)
+                logger.info("Running parallel feature extraction pipeline...")
+                df_input = pd.DataFrame([{'url': realignment_url, 'type': 'unknown'}]) 
+                builder = FeatureBuilder(raw_data_path="", output_path="")
+                df_clean = builder.validate_and_clean(df_input)
+                
+                if df_clean.empty:
+                    logger.error("URL failed validation constraints.")
+                    st.error("Invalid URL format or URL could not be parsed.")
+                    st.stop()
+                    
+                df_features = builder.build_features(df_clean)
+                
+                # Align features exactly with LightGBM's training parameters
+                model_features = df_features[model.feature_name_]
+                
+                # Load trained model to fetch prediction probabilities
+                logger.info("Executing LightGBM inference model...")
+                P_feature = model.predict_proba(model_features)[0]
+                
+                # Compute graph domain probabilities via extraction matching
+                logger.info("Computing scalable graph domain probabilities...")
+                ext = tldextract.extract(url_input)
+                domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ext.suffix
+                tld = ext.suffix
+                
+                # Define universally trusted domains to counteract dataset poisoning 
+                # (e.g. users uploading malware to Google Drive flags 'google.com' as malware in the dataset)
+                TRUSTED_DOMAINS = {
+                    'google.com', 'chatgpt.com', 'openai.com', 'github.com', 'microsoft.com', 
+                    'apple.com', 'amazon.com', 'facebook.com', 'linkedin.com', 'youtube.com', 
+                    'wikipedia.org', 'bing.com', 'yahoo.com', 'instagram.com', 'whatsapp.com'
+                }
+                
+                # Global dataset priors (approx: 65% benign, 15% defacement, 15% phishing, 5% malware)
+                GLOBAL_PRIOR = np.array([0.65, 0.15, 0.15, 0.05])
+                
+                # Default fallback
+                P_graph = np.copy(GLOBAL_PRIOR)
+                
+                if domain in TRUSTED_DOMAINS:
+                    logger.info(f"Domain '{domain}' identified in Global Trust Whitelist. Enforcing benign bias.")
+                    P_graph = np.array([0.95, 0.01, 0.02, 0.02])
+                elif graph_df is not None:
+                    graph_cols = [f'domain_class_{c}_prob' for c in range(4)]
+                    tld_cols = [f'tld_class_{c}_prob' for c in range(4)]
+                    
+                    domain_match = graph_df[graph_df['registered_domain'] == domain]
+                    if not domain_match.empty:
+                        freq = domain_match['domain_frequency'].iloc[0]
+                        # If frequency is very low, it's noisy, so we blend it with global prior
+                        raw_graph = domain_match[graph_cols].iloc[0].values
+                        if freq < 5:
+                            P_graph = (raw_graph + GLOBAL_PRIOR) / 2.0
+                            logger.info(f"Found specific node graph projection for domain: {domain} (Low freq: {freq}, smoothed)")
+                        else:
+                            P_graph = raw_graph
+                            logger.info(f"Found specific node graph projection for domain: {domain} (Freq: {freq})")
                     else:
-                        P_graph = raw_graph
-                        logger.info(f"Found specific node graph projection for domain: {domain} (Freq: {freq})")
-                else:
-                    tld_match = graph_df[graph_df['tld'] == tld]
-                    if not tld_match.empty:
-                        raw_tld = tld_match[tld_cols].iloc[0].values
-                        # Blend TLD probability with Global Prior to prevent harsh penalization (e.g., heavily penalizing all .coms)
-                        P_graph = (raw_tld * 0.1) + (GLOBAL_PRIOR * 0.9)
-                        logger.info(f"Node graph domain missing, utilizing smoothed TLD fallback projection: {tld}")
+                        tld_match = graph_df[graph_df['tld'] == tld]
+                        if not tld_match.empty:
+                            raw_tld = tld_match[tld_cols].iloc[0].values
+                            # Blend TLD probability with Global Prior to prevent harsh penalization (e.g., heavily penalizing all .coms)
+                            P_graph = (raw_tld * 0.1) + (GLOBAL_PRIOR * 0.9)
+                            logger.info(f"Node graph domain missing, utilizing smoothed TLD fallback projection: {tld}")
+                    
+                    # Safeguard normalization
+                    P_graph = P_graph / (np.sum(P_graph) + 1e-9)
+    
+                # Apply hybrid fusion logic
+                logger.info(f"Executing deep hybrid fusion metrics. (Alpha {alpha})")
+                beta = 1.0 - alpha
+                P_final = alpha * P_feature + beta * P_graph
                 
-                # Safeguard normalization
-                P_graph = P_graph / (np.sum(P_graph) + 1e-9)
-
-            # Apply hybrid fusion logic
-            logger.info(f"Executing deep hybrid fusion metrics. (Alpha {alpha})")
-            beta = 1.0 - alpha
-            P_final = alpha * P_feature + beta * P_graph
-            
-            # Normalize to assure standard percentage metrics
-            P_final = P_final / np.sum(P_final)
-            pred_class_idx = np.argmax(P_final)
-            pred_class = CLASSES[pred_class_idx]
-            confidence = P_final[pred_class_idx] * 100
-            
-            exec_time = time.time() - start_time
-            logger.info(f"Intelligence processing finished in {exec_time:.2f}s => Final Flag: {pred_class} at {confidence:.2f}%")
-            
-            # 3. Show:
-            st.markdown("<hr style='border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
-            st.markdown("<h2 style='text-align: center; color: #f8fafc; margin-bottom: 20px;'>Hybrid Intelligence Results</h2>", unsafe_allow_html=True)
-            
-            metric_cols = st.columns(3)
-            
-            # Mapping visual status colors
-            color_map = {
-                'benign': '#22c55e',       # Safe Green
-                'defacement': '#eab308',   # Warning Yellow
-                'phishing': '#f97316',     # Danger Orange
-                'malware': '#ef4444'       # Critical Red
-            }
-            pred_color = color_map.get(pred_class, '#38bdf8')
-            
-            with metric_cols[0]:
-                st.markdown(f"""
-                <div class='card' style='text-align: center; border-bottom: 4px solid {pred_color};'>
-                    <div class='metric-label'>Predicted Security Class</div>
-                    <div class='metric-value' style='color: {pred_color}; text-transform: capitalize;'>{pred_class}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                # Normalize to assure standard percentage metrics
+                P_final = P_final / np.sum(P_final)
+                pred_class_idx = np.argmax(P_final)
+                pred_class = CLASSES[pred_class_idx]
+                confidence = P_final[pred_class_idx] * 100
                 
-            with metric_cols[1]:
-                st.markdown(f"""
-                <div class='card' style='text-align: center;'>
-                    <div class='metric-label'>Overall Confidence</div>
-                    <div class='metric-value'>{confidence:.2f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
+                exec_time = time.time() - start_time
+                logger.info(f"Intelligence processing finished in {exec_time:.2f}s => Final Flag: {pred_class} at {confidence:.2f}%")
                 
-            with metric_cols[2]:
-                st.markdown(f"""
-                <div class='card' style='text-align: center;'>
-                    <div class='metric-label'>Fusion Coefficient (Alpha)</div>
-                    <div class='metric-value'>{alpha:.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                # 3. Show:
+                st.markdown("<hr style='border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+                st.markdown("<h2 style='text-align: center; color: #f8fafc; margin-bottom: 20px;'>Hybrid Intelligence Results</h2>", unsafe_allow_html=True)
                 
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Charts & Table Elements
-            vis_col, table_col = st.columns([1.2, 1])
-            
-            with vis_col:
-                st.markdown("<div class='card'>", unsafe_allow_html=True)
-                st.markdown("<h3 style='color: #f8fafc;'>Fusion Probability Breakdown</h3>", unsafe_allow_html=True)
+                metric_cols = st.columns(3)
                 
-                # Probability bar chart structure
-                prob_df = pd.DataFrame({
-                    'Class Indicator': [c.capitalize() for c in CLASSES],
-                    'Final Combined Fused Score': P_final,
-                    'LightGBM Score (Lexical)': P_feature,
-                    'Graph Vector Score (Domain)': P_graph
-                })
+                # Mapping visual status colors
+                color_map = {
+                    'benign': '#22c55e',       # Safe Green
+                    'defacement': '#eab308',   # Warning Yellow
+                    'phishing': '#f97316',     # Danger Orange
+                    'malware': '#ef4444'       # Critical Red
+                }
+                pred_color = color_map.get(pred_class, '#38bdf8')
                 
-                # Render interactive Plotly graph
-                fig = px.bar(
-                    prob_df, 
-                    x='Class Indicator', 
-                    y=['Final Combined Fused Score', 'LightGBM Score (Lexical)', 'Graph Vector Score (Domain)'],
-                    barmode='group',
-                    color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b'],
-                    height=450
-                )
-                fig.update_layout(
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font_color='#94a3b8',
-                    legend_title_text='Intelligence Aspect',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    margin=dict(l=0, r=0, t=10, b=0)
-                )
-                fig.update_yaxes(gridcolor='rgba(255,255,255,0.05)', title_text='Probability')
-                fig.update_xaxes(title_text='Threat Class')
-                st.plotly_chart(fig, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+                with metric_cols[0]:
+                    st.markdown(f"""
+                    <div class='card' style='text-align: center; border-bottom: 4px solid {pred_color};'>
+                        <div class='metric-label'>Predicted Security Class</div>
+                        <div class='metric-value' style='color: {pred_color}; text-transform: capitalize;'>{pred_class}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                with metric_cols[1]:
+                    st.markdown(f"""
+                    <div class='card' style='text-align: center;'>
+                        <div class='metric-label'>Overall Confidence</div>
+                        <div class='metric-value'>{confidence:.2f}%</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                with metric_cols[2]:
+                    st.markdown(f"""
+                    <div class='card' style='text-align: center;'>
+                        <div class='metric-label'>Fusion Coefficient (Alpha)</div>
+                        <div class='metric-value'>{alpha:.2f}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                st.markdown("<br>", unsafe_allow_html=True)
                 
-            with table_col:
-                st.markdown("<div class='card'>", unsafe_allow_html=True)
-                st.markdown("<h3 style='color: #f8fafc;'>Extracted Feature Engine Array</h3>", unsafe_allow_html=True)
+                # Charts & Table Elements
+                vis_col, table_col = st.columns([1.2, 1])
                 
-                # Feature breakdown table restructuring
-                feat_table_df = model_features.T.reset_index()
-                feat_table_df.columns = ['Feature Designation', 'Computed Value']
-                
-                # Clean table data
-                feat_table_df['Computed Value'] = pd.to_numeric(feat_table_df['Computed Value']).round(4)
-                
-                # Beautiful Streamlit grid rendering
-                st.dataframe(feat_table_df, height=450, use_container_width=True, hide_index=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-    except Exception as e:
-        logger.error(f"Inference process faulted: {str(e)}", exc_info=True)
-        st.error(f"Core intelligence engine failed during generation: {str(e)}")
+                with vis_col:
+                    st.markdown("<div class='card'>", unsafe_allow_html=True)
+                    st.markdown("<h3 style='color: #f8fafc;'>Fusion Probability Breakdown</h3>", unsafe_allow_html=True)
+                    
+                    # Probability bar chart structure
+                    prob_df = pd.DataFrame({
+                        'Class Indicator': [c.capitalize() for c in CLASSES],
+                        'Final Combined Fused Score': P_final,
+                        'LightGBM Score (Lexical)': P_feature,
+                        'Graph Vector Score (Domain)': P_graph
+                    })
+                    
+                    # Render interactive Plotly graph
+                    fig = px.bar(
+                        prob_df, 
+                        x='Class Indicator', 
+                        y=['Final Combined Fused Score', 'LightGBM Score (Lexical)', 'Graph Vector Score (Domain)'],
+                        barmode='group',
+                        color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b'],
+                        height=450
+                    )
+                    fig.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='#94a3b8',
+                        legend_title_text='Intelligence Aspect',
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        margin=dict(l=0, r=0, t=10, b=0)
+                    )
+                    fig.update_yaxes(gridcolor='rgba(255,255,255,0.05)', title_text='Probability')
+                    fig.update_xaxes(title_text='Threat Class')
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                with table_col:
+                    st.markdown("<div class='card'>", unsafe_allow_html=True)
+                    st.markdown("<h3 style='color: #f8fafc;'>Extracted Feature Engine Array</h3>", unsafe_allow_html=True)
+                    
+                    # Feature breakdown table restructuring
+                    feat_table_df = model_features.T.reset_index()
+                    feat_table_df.columns = ['Feature Designation', 'Computed Value']
+                    
+                    # Clean table data
+                    feat_table_df['Computed Value'] = pd.to_numeric(feat_table_df['Computed Value']).round(4)
+                    
+                    # Beautiful Streamlit grid rendering
+                    st.dataframe(feat_table_df, height=450, use_container_width=True, hide_index=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
+        except Exception as e:
+            logger.error(f"Inference process faulted: {str(e)}", exc_info=True)
+            st.error(f"Core intelligence engine failed during generation: {str(e)}")
