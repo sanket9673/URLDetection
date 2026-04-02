@@ -97,11 +97,25 @@ def load_assets():
     with open(MODEL_PATH, "rb") as f:
         model = pickle.load(f)
         
-    graph_df = None
-    if os.path.exists(GRAPH_PATH):
-        graph_df = pd.read_parquet(GRAPH_PATH)
-    else:
-        logger.warning(f"Graph features missing at {GRAPH_PATH}. Falling back to default probabilities.")
+    gnn_model = None
+    gnn_data = None
+    gnn_mappings = None
+    try:
+        import torch
+        from src.graph.gnn_train import HeteroGraphSAGE
+        # Weights explicitly marked false because HeteroData expects multiple classes internally
+        gnn_data = torch.load("models/gnn_graph_data.pt", weights_only=False)
+        with open("models/gnn_mappings.pkl", "rb") as f:
+            gnn_mappings = pickle.load(f)
+            
+        gnn_model = HeteroGraphSAGE(hidden_channels=64, out_channels=4, metadata=gnn_data.metadata())
+        device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+        gnn_model.load_state_dict(torch.load("models/graphsage_model.pth", map_location=device, weights_only=True))
+        gnn_model.to(device)
+        gnn_model.eval()
+        gnn_data = gnn_data.to(device)
+    except Exception as e:
+        logger.warning(f"Could not load GNN assets: {e}")
         
     alpha = 0.5
     if os.path.exists(METRICS_PATH):
@@ -113,10 +127,10 @@ def load_assets():
         except Exception as e:
             logger.warning(f"Could not load best_alpha, defaulting to 0.5. Error: {e}")
             
-    return model, graph_df, alpha
+    return model, gnn_model, gnn_data, gnn_mappings, alpha
 
 try:
-    model, graph_df, alpha = load_assets()
+    model, gnn_model, gnn_data, gnn_mappings, alpha = load_assets()
     logger.info("Intelligence engine ready online.")
 except Exception as e:
     st.error(f"Intelligence Engine offline: {str(e)}")
@@ -180,53 +194,122 @@ with tab1:
                 logger.info("Executing LightGBM inference model...")
                 P_feature = model.predict_proba(model_features)[0]
                 
-                # Compute graph domain probabilities via extraction matching
-                logger.info("Computing scalable graph domain probabilities...")
+                # Compute graph domain probabilities via dynamically injecting into PyTorch Geometric
+                logger.info("Computing scalable graph domain probabilities via PyTorch GraphSAGE...")
                 ext = tldextract.extract(url_input)
                 domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ext.suffix
                 tld = ext.suffix
                 
                 # Define universally trusted domains to counteract dataset poisoning 
-                # (e.g. users uploading malware to Google Drive flags 'google.com' as malware in the dataset)
                 TRUSTED_DOMAINS = {
                     'google.com', 'chatgpt.com', 'openai.com', 'github.com', 'microsoft.com', 
                     'apple.com', 'amazon.com', 'facebook.com', 'linkedin.com', 'youtube.com', 
                     'wikipedia.org', 'bing.com', 'yahoo.com', 'instagram.com', 'whatsapp.com'
                 }
                 
-                # Global dataset priors (approx: 65% benign, 15% defacement, 15% phishing, 5% malware)
                 GLOBAL_PRIOR = np.array([0.65, 0.15, 0.15, 0.05])
-                
-                # Default fallback
                 P_graph = np.copy(GLOBAL_PRIOR)
                 
                 if domain in TRUSTED_DOMAINS:
                     logger.info(f"Domain '{domain}' identified in Global Trust Whitelist. Enforcing benign bias.")
                     P_graph = np.array([0.95, 0.01, 0.02, 0.02])
-                elif graph_df is not None:
-                    graph_cols = [f'domain_class_{c}_prob' for c in range(4)]
-                    tld_cols = [f'tld_class_{c}_prob' for c in range(4)]
+                elif gnn_model is not None and gnn_data is not None and gnn_mappings is not None:
+                    import torch
+                    import copy
+                    from torch_geometric.data import HeteroData
+                    import torch_geometric.transforms as T
                     
-                    domain_match = graph_df[graph_df['registered_domain'] == domain]
-                    if not domain_match.empty:
-                        freq = domain_match['domain_frequency'].iloc[0]
-                        # If frequency is very low, it's noisy, so we blend it with global prior
-                        raw_graph = domain_match[graph_cols].iloc[0].values
-                        if freq < 5:
-                            P_graph = (raw_graph + GLOBAL_PRIOR) / 2.0
-                            logger.info(f"Found specific node graph projection for domain: {domain} (Low freq: {freq}, smoothed)")
+                    data_inf = HeteroData()
+                    # We avoid deepcopying 600K nodes to avoid freezing the dashboard! 
+                    # Instead of copying the whole graph, we can just slice out the neighbors
+                    # or temporarily add our node to the original tensor and remove it!
+                    # For performance in Streamlit, appending to tensor directly is super fast, 
+                    # then we remove it after inference.
+                    
+                    device = next(gnn_model.parameters()).device
+                    
+                    feature_cols = gnn_mappings['feature_cols']
+                    domain_mapping = gnn_mappings['domain_mapping']
+                    tld_mapping = gnn_mappings['tld_mapping']
+                    
+                    available_feats = []
+                    for c in feature_cols:
+                        if c in df_features.columns:
+                            available_feats.append(df_features[c].values[0])
                         else:
-                            P_graph = raw_graph
-                            logger.info(f"Found specific node graph projection for domain: {domain} (Freq: {freq})")
-                    else:
-                        tld_match = graph_df[graph_df['tld'] == tld]
-                        if not tld_match.empty:
-                            raw_tld = tld_match[tld_cols].iloc[0].values
-                            # Blend TLD probability with Global Prior to prevent harsh penalization (e.g., heavily penalizing all .coms)
-                            P_graph = (raw_tld * 0.1) + (GLOBAL_PRIOR * 0.9)
-                            logger.info(f"Node graph domain missing, utilizing smoothed TLD fallback projection: {tld}")
+                            available_feats.append(0.0)
+                            
+                    url_feat_tensor = torch.tensor([available_feats], dtype=torch.float).to(device)
                     
-                    # Safeguard normalization
+                    # Capture exact counts to revert later
+                    orig_url_nodes = gnn_data['url'].x.shape[0]
+                    orig_domain_nodes = gnn_data['url'].x.shape[0] # Not used for rollback, but reference
+                    
+                    # 1. Expand node tensors
+                    gnn_data['url'].x = torch.cat([gnn_data['url'].x, url_feat_tensor], dim=0)
+                    
+                    added_domain = False
+                    added_tld = False
+                    
+                    if domain in domain_mapping:
+                        d_idx = domain_mapping[domain]
+                    else:
+                        d_idx = gnn_data['domain'].x.shape[0]
+                        added_domain = True
+                        new_domain_feat = url_feat_tensor.clone()
+                        gnn_data['domain'].x = torch.cat([gnn_data['domain'].x, new_domain_feat], dim=0)
+                        
+                    if tld in tld_mapping:
+                        t_idx = tld_mapping[tld]
+                    else:
+                        t_idx = gnn_data['tld'].x.shape[0]
+                        added_tld = True
+                        new_tld_feat = torch.zeros((1, gnn_data['tld'].x.shape[1]), dtype=torch.float).to(device)
+                        gnn_data['tld'].x = torch.cat([gnn_data['tld'].x, new_tld_feat], dim=0)
+                        
+                    # 2. Add edges
+                    # Must find edge index in undirected graph properly
+                    new_ud_edges = torch.tensor([[orig_url_nodes], [d_idx]], dtype=torch.long).to(device)
+                    orig_ud_edges = gnn_data['url', 'belongs_to', 'domain'].edge_index
+                    gnn_data['url', 'belongs_to', 'domain'].edge_index = torch.cat([orig_ud_edges, new_ud_edges], dim=1)
+                    
+                    orig_dt_edges = gnn_data['domain', 'belongs_to', 'tld'].edge_index
+                    
+                    if added_domain or added_tld:
+                        new_dt_edges = torch.tensor([[d_idx], [t_idx]], dtype=torch.long).to(device)
+                        gnn_data['domain', 'belongs_to', 'tld'].edge_index = torch.cat([orig_dt_edges, new_dt_edges], dim=1)
+                        
+                    # Need reverse edges since undirected
+                    new_du_edges = torch.tensor([[d_idx], [orig_url_nodes]], dtype=torch.long).to(device)
+                    orig_rev_ud = gnn_data['domain', 'rev_belongs_to', 'url'].edge_index
+                    gnn_data['domain', 'rev_belongs_to', 'url'].edge_index = torch.cat([orig_rev_ud, new_du_edges], dim=1)
+                    
+                    if added_domain or added_tld:
+                        new_td_edges = torch.tensor([[t_idx], [d_idx]], dtype=torch.long).to(device)
+                        orig_rev_dt = gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index
+                        gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = torch.cat([orig_rev_dt, new_td_edges], dim=1)
+                        
+                    # 3. Forward Pass (Inductive Generation)
+                    with torch.no_grad():
+                        probs = gnn_model(gnn_data.x_dict, gnn_data.edge_index_dict)
+                        # Newest node is at the end
+                        P_graph = probs[-1].cpu().numpy()
+                        logger.info(f"GraphSAGE yielded valid P_gnn vector: {P_graph}")
+                        
+                    # 4. Immediate Rollback (Cleanup to prevent memory ballooning)
+                    gnn_data['url'].x = gnn_data['url'].x[:orig_url_nodes]
+                    gnn_data['url', 'belongs_to', 'domain'].edge_index = orig_ud_edges
+                    gnn_data['domain', 'rev_belongs_to', 'url'].edge_index = orig_rev_ud
+                    
+                    if added_domain:
+                        gnn_data['domain'].x = gnn_data['domain'].x[:-1]
+                    if added_tld:
+                        gnn_data['tld'].x = gnn_data['tld'].x[:-1]
+                    if added_domain or added_tld:
+                        gnn_data['domain', 'belongs_to', 'tld'].edge_index = orig_dt_edges
+                        gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = orig_rev_dt
+                    
+                    # Safeguard metric structure
                     P_graph = P_graph / (np.sum(P_graph) + 1e-9)
     
                 # Apply hybrid fusion logic

@@ -15,7 +15,7 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 def hybrid_fusion(
-    data_path="data/processed/graph_features.parquet",
+    data_path="data/processed/gnn_features.parquet",
     model_path="models/lightgbm_model.pkl",
     output_path="outputs/hybrid_metrics.json"
 ):
