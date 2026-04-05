@@ -141,16 +141,25 @@ except Exception as e:
 tab1, tab2 = st.tabs(["🛡️ Live Threat Analysis", "🕸️ Graph Intelligence Architecture (Demo)"])
 
 with tab2:
-    st.markdown("<h2 style=\"color: #f8fafc;\">Domain Graph Propagation Mechanism</h2>", unsafe_allow_html=True)
-    st.markdown("<p style=\"color: #94a3b8;\">This interactive topological visualization demonstrates how malicious risk aggregates at the Domain and TLD levels, which directly assists the Hybrid Fusion engine in detecting phishing campaigns that rotate through subdomains.</p>", unsafe_allow_html=True)
-    html_path = os.path.join(project_root, "outputs", "reports", "domain_graph_concept.html")
-    if os.path.exists(html_path):
-        import streamlit.components.v1 as components
-        with open(html_path, "r", encoding="utf-8") as f:
-            source_code = f.read()
-        st.markdown("<div class=\"card\" style=\"padding: 0px; overflow: hidden;\">", unsafe_allow_html=True)
-        components.html(source_code, height=650, scrolling=False)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<h2 style=\"color: #f8fafc;\">Heterogeneous GNN Structural Intelligence</h2>", unsafe_allow_html=True)
+    st.markdown("<p style=\"color: #94a3b8;\">This interactive topological visualization demonstrates how the GraphSAGE \"Sample and Aggregate\" mechanism works across TLD, Domain, and URL nodes. By aggregating lexical features from across the neighborhood, the system performs inductive threat detection even on zero-day subdomains.</p>", unsafe_allow_html=True)
+    
+    # Try both files, prioritize gnn_topology_visualization.html
+    html_found = False
+    for fname in ["gnn_topology_visualization.html", "domain_graph_concept.html"]:
+        html_path = os.path.join(project_root, "outputs", "reports", fname)
+        if os.path.exists(html_path):
+            import streamlit.components.v1 as components
+            with open(html_path, "r", encoding="utf-8") as f:
+                source_code = f.read()
+            st.markdown("<div class=\"card\" style=\"padding: 0px; overflow: hidden;\">", unsafe_allow_html=True)
+            components.html(source_code, height=650, scrolling=False)
+            st.markdown("</div>", unsafe_allow_html=True)
+            html_found = True
+            break
+    
+    if not html_found:
+        st.info("Topological visualization is currently being generated. Please run model evaluation first.")
 
 with tab1:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -418,6 +427,69 @@ with tab1:
                     # Beautiful Streamlit grid rendering
                     st.dataframe(feat_table_df, height=450, use_container_width=True, hide_index=True)
                     st.markdown("</div>", unsafe_allow_html=True)
+
+                # 4. New: Topological Neighborhood Context
+                st.markdown("<div class='card'>", unsafe_allow_html=True)
+                st.markdown("<h3 style='color: #f8fafc;'>Input URL Topological Neighborhood (Local GNN Context)</h3>", unsafe_allow_html=True)
+                st.markdown("<p style='color: #94a3b8; font-size: 14px;'>This graph shows the structural association between your input URL and its parent domain. The GNN aggregates risk from neighbor URLs under the same Domain/TLD cluster to predict the threat level.</p>", unsafe_allow_html=True)
+                
+                import networkx as nx
+                import plotly.graph_objects as go
+                
+                # Build localized neighborhood graph
+                G_local = nx.Graph()
+                ext = tldextract.extract(url_input)
+                domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ext.suffix
+                tld = ext.suffix
+                
+                # Add nodes
+                G_local.add_node(tld, type='TLD', color='#8b5cf6', size=30)
+                G_local.add_node(domain, type='Domain', color='#38bdf8', size=25)
+                G_local.add_node("Input URL", type='Target', color=pred_color, size=20)
+                
+                G_local.add_edge(domain, tld)
+                G_local.add_edge("Input URL", domain)
+                
+                # Add a few "neighbor" URLs to show aggregation if domain exists in graph
+                if gnn_mappings and domain in gnn_mappings.get('domain_mapping', {}):
+                    G_local.add_node("Neighbor A", type='Neighbor', color='#94a3b8', size=12)
+                    G_local.add_node("Neighbor B", type='Neighbor', color='#94a3b8', size=12)
+                    G_local.add_edge("Neighbor A", domain)
+                    G_local.add_edge("Neighbor B", domain)
+                
+                pos = nx.spring_layout(G_local, seed=42)
+                
+                edge_x, edge_y = [], []
+                for edge in G_local.edges():
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+                    
+                edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#475569'), hoverinfo='none', mode='lines')
+                
+                node_x, node_y, node_color, node_size, node_text = [], [], [], [], []
+                for node in G_local.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    node_color.append(G_local.nodes[node]['color'])
+                    node_size.append(G_local.nodes[node]['size'])
+                    node_text.append(node)
+                    
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y, mode='markers+text', text=node_text, textposition="bottom center",
+                    marker=dict(color=node_color, size=node_size, line=dict(width=2, color='#ffffff')),
+                    textfont=dict(color="#ffffff")
+                )
+                
+                fig_local = go.Figure(data=[edge_trace, node_trace], 
+                                     layout=go.Layout(showlegend=False, margin=dict(b=0,l=0,r=0,t=0), 
+                                                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                                     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                                     yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+                st.plotly_chart(fig_local, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
                     
         except Exception as e:
             logger.error(f"Inference process faulted: {str(e)}", exc_info=True)
