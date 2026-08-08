@@ -27,11 +27,11 @@ By combining these predictions via **Probability Ensemble Fusion**, the hybrid s
 
 ## 2. Key Engineering Highlights (Recruiter USPs)
 
-*   **⚡ Vectorized Feature Processing**: Built entirely on Pandas and NumPy vectorized operations with zero row-loop overhead, extracting 40 lexical features (structural, statistical, and suspicious patterns) in milliseconds.
-*   **🕸️ Inductive Topological Reasoning**: Employs PyTorch Geometric ($PyG$) to construct a bipartite heterogeneous graph ($URL \rightarrow Domain \rightarrow TLD$). The GNN learns neighborhood aggregation functions ($SAGEConv$) rather than transductive node lookups, enabling robust threat classification of completely unseen zero-day domains.
-*   **⚖️ Dataset Bias Mitigation (`fix_data.py`)**: Includes automated pre-processing logic to prevent the models from developing artificial dependency on protocol prefixes (`http://` vs `https://`) or trailing paths, forcing the classifiers to learn true structural features.
-*   **🧪 Ensemble Probability Fusion**: Dynamically blends the continuous probability output vectors of the LightGBM classifier ($P_{lexical}$) and the GraphSAGE model ($P_{gnn}$) using tuned alpha blending ($\alpha = 0.7$) to maximize classification robustness across four target threat categories: *Benign, Phishing, Defacement, and Malware*.
-*   **🖥️ Real-Time Streamlit Interface with Memory Isolation**: The live inference dashboard features transient graph node injection. When an unseen zero-day domain is queried, it dynamically updates the in-memory graph, runs forward-pass GNN inferences, and executes an immediate state rollback to prevent memory leaks and graph pollution.
+*   **Vectorized Feature Processing**: Built entirely on Pandas and NumPy vectorized operations with zero row-loop overhead, extracting 40 lexical features (structural, statistical, and suspicious patterns) in milliseconds.
+*   **Inductive Topological Reasoning**: Employs PyTorch Geometric ($PyG$) to construct a bipartite heterogeneous graph ($URL \rightarrow Domain \rightarrow TLD$). The GNN learns neighborhood aggregation functions ($SAGEConv$) rather than transductive node lookups, enabling robust threat classification of completely unseen zero-day domains.
+*   **Dataset Bias Mitigation (`fix_data.py`)**: Includes automated pre-processing logic to prevent the models from developing artificial dependency on protocol prefixes (`http://` vs `https://`) or trailing paths, forcing the classifiers to learn true structural features.
+*   **Ensemble Probability Fusion**: Dynamically blends the continuous probability output vectors of the LightGBM classifier ($P_{lexical}$) and the GraphSAGE model ($P_{gnn}$) using tuned alpha blending ($\alpha = 0.7$) to maximize classification robustness across four target threat categories: *Benign, Phishing, Defacement, and Malware*.
+*   **Real-Time Streamlit Interface with Memory Isolation**: The live inference dashboard features transient graph node injection. When an unseen zero-day domain is queried, it dynamically updates the in-memory graph, runs forward-pass GNN inferences, and executes an immediate state rollback to prevent memory leaks and graph pollution.
 
 ---
 
@@ -269,5 +269,5 @@ To guarantee clean scientific results, all domain reputation counts, TLD probabi
 
 *   **Author**: Sanket Chavhan
 *   **GitHub**: [sanket9673](https://github.com/sanket9673)
-*   **LinkedIn**: [Sanket Chavhan](https://www.linkedin.com/in/sanket9673/)
-*   **Email**: [sanketchavhan9673@gmail.com](mailto:sanketchavhan9673@gmail.com)
+*   **LinkedIn**: [Sanket Chavhan](https://linkedin.com/in/sanket-kisan-chavhan-930042273)
+*   **Email**: [sanketchavhan9673@gmail.com](mailto:sanketch9673@gmail.com)
