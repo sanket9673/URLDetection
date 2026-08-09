@@ -220,19 +220,29 @@ class FeatureBuilder:
 
 if __name__ == "__main__":
     import yaml
+    import argparse
     
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     config_path = os.path.join(base_dir, 'config', 'config.yaml')
     
+    default_raw = "data/raw/malicious_phish.csv"
+    default_out = "data/processed/feature_dataset.parquet"
+    
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        raw_data_path = os.path.join(base_dir, config['data']['raw_dataset'])
-        output_path = os.path.join(base_dir, config['data']['processed_dataset'].replace('.csv', '.parquet'))
+        if 'data' in config:
+            if 'raw_dataset' in config['data']:
+                default_raw = os.path.join(base_dir, config['data']['raw_dataset'])
+            if 'processed_dataset' in config['data']:
+                default_out = os.path.join(base_dir, config['data']['processed_dataset'].replace('.csv', '.parquet'))
     except Exception as e:
         logger.warning(f"Could not load config defaults: {e}. Using local paths.")
-        raw_data_path = "data/raw/malicious_phish.csv"
-        output_path = "data/processed/feature_dataset.parquet"
         
-    builder = FeatureBuilder(raw_data_path=raw_data_path, output_path=output_path)
+    parser = argparse.ArgumentParser(description="Extract lexical features from URLs")
+    parser.add_argument("--raw-data-path", type=str, default=default_raw, help="Path to raw CSV dataset")
+    parser.add_argument("--output-path", type=str, default=default_out, help="Path to save processed parquet dataset")
+    args = parser.parse_args()
+        
+    builder = FeatureBuilder(raw_data_path=args.raw_data_path, output_path=args.output_path)
     df = builder.run()

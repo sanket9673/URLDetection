@@ -218,84 +218,15 @@ with tab1:
             if domain in TRUSTED_DOMAINS:
                 P_graph = np.array([0.95, 0.01, 0.02, 0.02])
             elif gnn_model is not None and gnn_data is not None and gnn_mappings is not None:
-                import torch
-                from torch_geometric.data import HeteroData
-                
-                device = next(gnn_model.parameters()).device
-                feature_cols = gnn_mappings['feature_cols']
-                domain_mapping = gnn_mappings['domain_mapping']
-                tld_mapping = gnn_mappings['tld_mapping']
-                
-                if domain not in domain_mapping:
-                    is_zero_day = True # Unseen domain! Need inductive graph reasoning
-                    
-                available_feats = []
-                for c in feature_cols:
-                    if c in df_features.columns:
-                        available_feats.append(df_features[c].values[0])
-                    else:
-                        available_feats.append(0.0)
-                        
-                url_feat_tensor = torch.tensor([available_feats], dtype=torch.float).to(device)
-                
-                orig_url_nodes = gnn_data['url'].x.shape[0]
-                gnn_data['url'].x = torch.cat([gnn_data['url'].x, url_feat_tensor], dim=0)
-                
-                added_domain = False
-                added_tld = False
-                
-                if domain in domain_mapping:
-                    d_idx = domain_mapping[domain]
-                else:
-                    d_idx = gnn_data['domain'].x.shape[0]
-                    added_domain = True
-                    # Just clone URL feats to simulate unseen domain traits via inductive learning
-                    new_domain_feat = url_feat_tensor.clone()
-                    gnn_data['domain'].x = torch.cat([gnn_data['domain'].x, new_domain_feat], dim=0)
-                    
-                if tld in tld_mapping:
-                    t_idx = tld_mapping[tld]
-                else:
-                    t_idx = gnn_data['tld'].x.shape[0]
-                    added_tld = True
-                    new_tld_feat = torch.zeros((1, gnn_data['tld'].x.shape[1]), dtype=torch.float).to(device)
-                    gnn_data['tld'].x = torch.cat([gnn_data['tld'].x, new_tld_feat], dim=0)
-                    
-                new_ud_edges = torch.tensor([[orig_url_nodes], [d_idx]], dtype=torch.long).to(device)
-                orig_ud_edges = gnn_data['url', 'belongs_to', 'domain'].edge_index
-                gnn_data['url', 'belongs_to', 'domain'].edge_index = torch.cat([orig_ud_edges, new_ud_edges], dim=1)
-                
-                orig_dt_edges = gnn_data['domain', 'belongs_to', 'tld'].edge_index
-                if added_domain or added_tld:
-                    new_dt_edges = torch.tensor([[d_idx], [t_idx]], dtype=torch.long).to(device)
-                    gnn_data['domain', 'belongs_to', 'tld'].edge_index = torch.cat([orig_dt_edges, new_dt_edges], dim=1)
-                    
-                new_du_edges = torch.tensor([[d_idx], [orig_url_nodes]], dtype=torch.long).to(device)
-                orig_rev_ud = gnn_data['domain', 'rev_belongs_to', 'url'].edge_index
-                gnn_data['domain', 'rev_belongs_to', 'url'].edge_index = torch.cat([orig_rev_ud, new_du_edges], dim=1)
-                
-                if added_domain or added_tld:
-                    new_td_edges = torch.tensor([[t_idx], [d_idx]], dtype=torch.long).to(device)
-                    orig_rev_dt = gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index
-                    gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = torch.cat([orig_rev_dt, new_td_edges], dim=1)
-                    
-                with torch.no_grad():
-                    probs = gnn_model(gnn_data.x_dict, gnn_data.edge_index_dict)
-                    P_graph = probs[-1].cpu().numpy()
-                    
-                gnn_data['url'].x = gnn_data['url'].x[:orig_url_nodes]
-                gnn_data['url', 'belongs_to', 'domain'].edge_index = orig_ud_edges
-                gnn_data['domain', 'rev_belongs_to', 'url'].edge_index = orig_rev_ud
-                
-                if added_domain:
-                    gnn_data['domain'].x = gnn_data['domain'].x[:-1]
-                if added_tld:
-                    gnn_data['tld'].x = gnn_data['tld'].x[:-1]
-                if added_domain or added_tld:
-                    gnn_data['domain', 'belongs_to', 'tld'].edge_index = orig_dt_edges
-                    gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = orig_rev_dt
-                
-                P_graph = P_graph / (np.sum(P_graph) + 1e-9)
+                is_zero_day = domain not in gnn_mappings['domain_mapping']
+                from src.graph.gnn_train import predict_gnn_dynamic
+                P_graph = predict_gnn_dynamic(
+                    [url_input], 
+                    df_features, 
+                    gnn_model, 
+                    gnn_data, 
+                    gnn_mappings
+                )[0]
             
             gnn_time = (time.time() - t2) * 1000
             

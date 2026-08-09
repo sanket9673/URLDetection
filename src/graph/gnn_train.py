@@ -188,11 +188,22 @@ def prepare_hetero_graph(df_path="data/processed/feature_dataset.parquet", targe
     y_encoded = le.fit_transform(labels)
     data['url'].y = torch.tensor(y_encoded, dtype=torch.long)
     
+    # Compute global domain reputation averages strictly on the training set (to prevent data leakage)
+    train_df = df.iloc[train_idx]
+    train_domain_names = train_df['registered_domain'].unique()
+    train_domain_ids = [domain_mapping[d] for d in train_domain_names]
+    global_domain_reputation_avg = domain_features_np[train_domain_ids].mean(axis=0)
+
     # Save Graph Data and Mappings for Inference Dashboard
     os.makedirs("models", exist_ok=True)
     import pickle
     with open("models/gnn_mappings.pkl", "wb") as f:
-        pickle.dump({"domain_mapping": domain_mapping, "tld_mapping": tld_mapping, "feature_cols": feature_cols}, f)
+        pickle.dump({
+            "domain_mapping": domain_mapping,
+            "tld_mapping": tld_mapping,
+            "feature_cols": feature_cols,
+            "global_domain_reputation_avg": global_domain_reputation_avg
+        }, f)
     torch.save(data, "models/gnn_graph_data.pt")
     
     logger.info(f"Graph Construction Complete. URL Nodes: {num_urls}, Domain Nodes: {num_domains}, TLD Nodes: {num_tlds}")
@@ -300,3 +311,192 @@ def train_gnn():
 
 if __name__ == '__main__':
     train_gnn()
+
+
+# ==========================================
+# DYNAMIC INFERENCE & COLD-START INJECTION
+# ==========================================
+
+import hashlib
+import threading
+
+gnn_lock = threading.Lock()
+
+def get_tld_ngram_embedding(tld_str: str, num_tlds: int) -> np.ndarray:
+    """
+    Computes a deterministic character n-gram mean embedding of a TLD string
+    to map unseen/cold-start TLDs to the feature space.
+    """
+    tld_str = tld_str.strip('.')
+    if not tld_str:
+        return np.zeros(num_tlds)
+    
+    # Extract 2-grams and 3-grams
+    ngrams = []
+    for i in range(len(tld_str) - 1):
+        ngrams.append(tld_str[i:i+2])
+    for i in range(len(tld_str) - 2):
+        ngrams.append(tld_str[i:i+3])
+        
+    # Fallback to characters if TLD is extremely short
+    if not ngrams:
+        ngrams = list(tld_str)
+        
+    feat = np.zeros(num_tlds)
+    for ngram in ngrams:
+        # Use hashlib for deterministic hashing across sessions
+        h = int(hashlib.md5(ngram.encode('utf-8')).hexdigest(), 16)
+        idx = h % num_tlds
+        feat[idx] += 1.0
+        
+    # Normalize to get mean embedding
+    if feat.sum() > 0:
+        feat = feat / feat.sum()
+    return feat
+
+def predict_gnn_dynamic(urls: list, df_features: pd.DataFrame, gnn_model, gnn_data, gnn_mappings):
+    """
+    Dynamically injects unseen URLs, domains, and TLDs into the graph,
+    executes GraphSAGE prediction, and rolls back the graph state to isolate memory.
+    Thread-safe via gnn_lock.
+    """
+    with gnn_lock:
+        device = next(gnn_model.parameters()).device
+        feature_cols = gnn_mappings['feature_cols']
+        domain_mapping = gnn_mappings['domain_mapping']
+        tld_mapping = gnn_mappings['tld_mapping']
+        
+        # Determine global domain reputation fallback
+        if 'global_domain_reputation_avg' in gnn_mappings:
+            global_domain_reputation_avg = gnn_mappings['global_domain_reputation_avg']
+        else:
+            # Fallback if pickle is not yet updated
+            global_domain_reputation_avg = gnn_data['domain'].x.mean(dim=0).cpu().numpy()
+            
+        # Parse lexical features for the input URLs
+        available_feats = []
+        for idx in range(len(urls)):
+            row_feats = []
+            for c in feature_cols:
+                if c in df_features.columns:
+                    row_feats.append(df_features[c].values[idx])
+                else:
+                    row_feats.append(0.0)
+            available_feats.append(row_feats)
+        url_feat_tensor = torch.tensor(available_feats, dtype=torch.float).to(device)
+        
+        # Save original graph state
+        orig_url_x = gnn_data['url'].x
+        orig_domain_x = gnn_data['domain'].x
+        orig_tld_x = gnn_data['tld'].x
+        
+        orig_ud_edges = gnn_data['url', 'belongs_to', 'domain'].edge_index
+        orig_dt_edges = gnn_data['domain', 'belongs_to', 'tld'].edge_index
+        orig_du_edges = gnn_data['domain', 'rev_belongs_to', 'url'].edge_index
+        orig_td_edges = gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index
+        
+        # Append URL features
+        gnn_data['url'].x = torch.cat([gnn_data['url'].x, url_feat_tensor], dim=0)
+        
+        orig_url_count = orig_url_x.shape[0]
+        orig_domain_count = orig_domain_x.shape[0]
+        orig_tld_count = orig_tld_x.shape[0]
+        
+        temp_domain_mapping = domain_mapping.copy()
+        temp_tld_mapping = tld_mapping.copy()
+        
+        new_domain_feats = []
+        new_tld_feats = []
+        
+        new_ud_src, new_ud_dst = [], []
+        new_du_src, new_du_dst = [], []
+        new_dt_src, new_dt_dst = [], []
+        new_td_src, new_td_dst = [], []
+        
+        added_dt_pairs = set()
+        
+        # Dynamic extraction and mapping
+        for idx, url in enumerate(urls):
+            u_idx = orig_url_count + idx
+            
+            ext = tldextract.extract(url)
+            domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ext.suffix
+            tld = ext.suffix
+            
+            # Resolve domain node ID
+            if domain in temp_domain_mapping:
+                d_idx = temp_domain_mapping[domain]
+            else:
+                d_idx = orig_domain_count + len(new_domain_feats)
+                temp_domain_mapping[domain] = d_idx
+                # Cold-start fallback: use global domain reputation average
+                new_domain_feats.append(global_domain_reputation_avg)
+                
+            # Resolve TLD node ID
+            if tld in temp_tld_mapping:
+                t_idx = temp_tld_mapping[tld]
+            else:
+                t_idx = orig_tld_count + len(new_tld_feats)
+                temp_tld_mapping[tld] = t_idx
+                # Cold-start fallback: compute deterministic character n-gram mean embedding
+                tld_emb = get_tld_ngram_embedding(tld, orig_tld_count)
+                new_tld_feats.append(tld_emb)
+                
+            # Map edges (URL -> belongs_to -> Domain)
+            new_ud_src.append(u_idx)
+            new_ud_dst.append(d_idx)
+            new_du_src.append(d_idx)
+            new_du_dst.append(u_idx)
+            
+            # Map edges (Domain -> belongs_to -> TLD)
+            dt_pair = (d_idx, t_idx)
+            if dt_pair not in added_dt_pairs:
+                new_dt_src.append(d_idx)
+                new_dt_dst.append(t_idx)
+                new_td_src.append(t_idx)
+                new_td_dst.append(d_idx)
+                added_dt_pairs.add(dt_pair)
+                
+        # Update node feature tensors in HeteroData
+        if new_domain_feats:
+            new_domain_feats_tensor = torch.tensor(np.array(new_domain_feats), dtype=torch.float).to(device)
+            gnn_data['domain'].x = torch.cat([gnn_data['domain'].x, new_domain_feats_tensor], dim=0)
+        if new_tld_feats:
+            new_tld_feats_tensor = torch.tensor(np.array(new_tld_feats), dtype=torch.float).to(device)
+            gnn_data['tld'].x = torch.cat([gnn_data['tld'].x, new_tld_feats_tensor], dim=0)
+            
+        # Update edge index tensors in HeteroData
+        new_ud_tensor = torch.tensor([new_ud_src, new_ud_dst], dtype=torch.long).to(device)
+        gnn_data['url', 'belongs_to', 'domain'].edge_index = torch.cat([orig_ud_edges, new_ud_tensor], dim=1)
+        
+        new_du_tensor = torch.tensor([new_du_src, new_du_dst], dtype=torch.long).to(device)
+        gnn_data['domain', 'rev_belongs_to', 'url'].edge_index = torch.cat([orig_du_edges, new_du_tensor], dim=1)
+        
+        if new_dt_src:
+            new_dt_tensor = torch.tensor([new_dt_src, new_dt_dst], dtype=torch.long).to(device)
+            gnn_data['domain', 'belongs_to', 'tld'].edge_index = torch.cat([orig_dt_edges, new_dt_tensor], dim=1)
+            
+            new_td_tensor = torch.tensor([new_td_src, new_td_dst], dtype=torch.long).to(device)
+            gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = torch.cat([orig_td_edges, new_td_tensor], dim=1)
+            
+        # Run forward pass through GraphSAGE
+        try:
+            with torch.no_grad():
+                probs = gnn_model(gnn_data.x_dict, gnn_data.edge_index_dict)
+                # Extracted URL node predictions (last len(urls) elements)
+                predictions = probs[-len(urls):].cpu().numpy()
+        finally:
+            # Enforce rollback of GNN data graph to isolate session states
+            gnn_data['url'].x = orig_url_x
+            gnn_data['domain'].x = orig_domain_x
+            gnn_data['tld'].x = orig_tld_x
+            
+            gnn_data['url', 'belongs_to', 'domain'].edge_index = orig_ud_edges
+            gnn_data['domain', 'rev_belongs_to', 'url'].edge_index = orig_du_edges
+            gnn_data['domain', 'belongs_to', 'tld'].edge_index = orig_dt_edges
+            gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = orig_td_edges
+            
+        # Re-normalize just to ensure sum(probs) = 1.0 safely
+        predictions = predictions / (predictions.sum(axis=1, keepdims=True) + 1e-9)
+        return predictions
+

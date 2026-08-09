@@ -27,3 +27,9 @@ def setup_logger():
     return logging.getLogger("HybridURLIntelligence")
 
 logger = setup_logger()
+
+def get_logger(name: str):
+    """
+    Returns a logger for the given module name.
+    """
+    return logging.getLogger(name)

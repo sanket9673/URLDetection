@@ -17,7 +17,8 @@ except ImportError:
 def hybrid_fusion(
     data_path="data/processed/gnn_features.parquet",
     model_path="models/lightgbm_model.pkl",
-    output_path="outputs/hybrid_metrics.json"
+    output_path="outputs/hybrid_metrics.json",
+    alpha=None
 ):
     logger.info("Starting Hybrid Fusion Process...")
     
@@ -88,8 +89,11 @@ def hybrid_fusion(
     P_graph_test_sum = np.sum(P_graph_test, axis=1, keepdims=True)
     P_graph_test = P_graph_test / (P_graph_test_sum + 1e-9)
 
-    # 2. Tune alpha in [0.3, 0.5, 0.7]
-    alphas = [0.3, 0.5, 0.7]
+    # 2. Tune alpha or use specified value
+    if alpha is not None:
+        alphas = [alpha]
+    else:
+        alphas = [0.3, 0.5, 0.7]
     best_alpha = None
     best_val_f1 = -1
     tuning_log = []
@@ -151,8 +155,21 @@ def hybrid_fusion(
     return metrics
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Hybrid probability fusion helper")
+    parser.add_argument("--data-path", type=str, default="data/processed/gnn_features.parquet", help="Path to processed features parquet")
+    parser.add_argument("--model-path", type=str, default="models/lightgbm_model.pkl", help="Path to LightGBM model pkl")
+    parser.add_argument("--output-path", type=str, default="outputs/hybrid_metrics.json", help="Path to save hybrid metrics JSON")
+    parser.add_argument("--alpha", type=float, default=None, help="Specific fusion weight to use (skips search)")
+    args = parser.parse_args()
+    
     try:
-        hybrid_fusion()
+        hybrid_fusion(
+            data_path=args.data_path,
+            model_path=args.model_path,
+            output_path=args.output_path,
+            alpha=args.alpha
+        )
     except Exception as e:
         logger.error(f"Hybrid fusion failed: {str(e)}", exc_info=True)
         raise
