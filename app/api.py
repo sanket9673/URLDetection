@@ -30,6 +30,7 @@ if project_root not in sys.path:
 
 from src.feature_engineering.feature_builder import FeatureBuilder
 from src.graph.gnn_train import HeteroGraphSAGE, predict_gnn_dynamic
+from src.prediction_guard import check_whitelist, apply_prediction_guard
 
 app = FastAPI(title="Hybrid URL Intelligence API", version="1.0.0")
 
@@ -143,6 +144,21 @@ def predict_single(url: str) -> URLPredictionResponse:
         raise HTTPException(status_code=503, detail="Model files are offline or not loaded.")
         
     try:
+        # Whitelist fast-path check
+        is_whitelisted, P_whitelist = check_whitelist(url)
+        if is_whitelisted:
+            pred_idx = np.argmax(P_whitelist)
+            pred_label = CLASSES[pred_idx]
+            confidence = float(P_whitelist[pred_idx] * 100)
+            probabilities_dict = {CLASS_MAP[c]: float(P_whitelist[i]) for i, c in enumerate(CLASSES)}
+            latency = (time.time() - t_start) * 1000
+            return URLPredictionResponse(
+                predicted_class=CLASS_MAP[pred_label],
+                probabilities=probabilities_dict,
+                confidence_score=confidence,
+                processing_latency_ms=latency
+            )
+
         # Standardize URL path & prefix (Mitigate protocol bias)
         import re
         realignment_url = re.sub(r'(?i)^https?://(www\.)?', '', url)
@@ -177,6 +193,9 @@ def predict_single(url: str) -> URLPredictionResponse:
         P_final = alpha * P_feature + beta * P_graph
         P_final = P_final / np.sum(P_final)
         
+        # Apply prediction guard heuristics for unseen domains/suspicious signals
+        P_final = apply_prediction_guard(url, P_final, models["gnn_mappings"]["domain_mapping"])
+        
         pred_idx = np.argmax(P_final)
         pred_label = CLASSES[pred_idx]
         confidence = float(P_final[pred_idx] * 100)
@@ -204,58 +223,78 @@ def predict_batch(urls: List[str]) -> List[URLPredictionResponse]:
         raise HTTPException(status_code=503, detail="Model files are offline or not loaded.")
         
     try:
-        import re
-        realignment_urls = []
-        for url in urls:
-            r_url = re.sub(r'(?i)^https?://(www\.)?', '', url)
-            r_url = r_url.rstrip('/')
-            realignment_urls.append(r_url)
+        # Pre-populate placeholders or whitelist results
+        responses = [None] * len(urls)
+        non_whitelist_indices = []
+        non_whitelist_urls = []
+        
+        for idx, url in enumerate(urls):
+            is_whitelisted, P_whitelist = check_whitelist(url)
+            if is_whitelisted:
+                pred_idx = np.argmax(P_whitelist)
+                pred_label = CLASSES[pred_idx]
+                confidence = float(P_whitelist[pred_idx] * 100)
+                probabilities_dict = {CLASS_MAP[c]: float(P_whitelist[i]) for i, c in enumerate(CLASSES)}
+                responses[idx] = URLPredictionResponse(
+                    predicted_class=CLASS_MAP[pred_label],
+                    probabilities=probabilities_dict,
+                    confidence_score=confidence,
+                    processing_latency_ms=(time.time() - t_start) * 1000
+                )
+            else:
+                non_whitelist_indices.append(idx)
+                non_whitelist_urls.append(url)
+                
+        # If there are non-whitelisted URLs, run them through the full pipeline
+        if non_whitelist_urls:
+            import re
+            realignment_urls = []
+            for url in non_whitelist_urls:
+                r_url = re.sub(r'(?i)^https?://(www\.)?', '', url)
+                r_url = r_url.rstrip('/')
+                realignment_urls.append(r_url)
+                
+            df_inputs = pd.DataFrame([{'url': u, 'type': 'unknown'} for u in realignment_urls])
+            builder = FeatureBuilder(raw_data_path="", output_path="")
+            df_clean = builder.validate_and_clean(df_inputs)
             
-        # Build features for all URLs in batch using vectorized FeatureBuilder
-        df_inputs = pd.DataFrame([{'url': u, 'type': 'unknown'} for u in realignment_urls])
-        builder = FeatureBuilder(raw_data_path="", output_path="")
-        df_clean = builder.validate_and_clean(df_inputs)
-        
-        if df_clean.empty:
-            raise HTTPException(status_code=400, detail="All URLs in batch are malformed or invalid.")
+            if df_clean.empty:
+                raise HTTPException(status_code=400, detail="All non-whitelisted URLs in batch are malformed or invalid.")
+                
+            df_features = builder.build_features(df_clean)
+            model_features = df_features[models["lightgbm"].feature_name_]
             
-        df_features = builder.build_features(df_clean)
-        model_features = df_features[models["lightgbm"].feature_name_]
-        
-        # LightGBM predictions for batch
-        P_features = models["lightgbm"].predict_proba(model_features)
-        
-        # Vectorized GNN predictions for batch
-        P_graphs = predict_gnn_dynamic(
-            urls, 
-            df_features, 
-            models["gnn_model"], 
-            models["gnn_data"], 
-            models["gnn_mappings"]
-        )
-        
-        # Hybrid Fusion for batch
-        alpha = models["alpha"]
-        beta = 1.0 - alpha
-        
-        P_finals = alpha * P_features + beta * P_graphs
-        P_finals = P_finals / np.sum(P_finals, axis=1, keepdims=True)
-        
-        responses = []
-        for i, url in enumerate(urls):
-            p_final = P_finals[i]
-            pred_idx = np.argmax(p_final)
-            pred_label = CLASSES[pred_idx]
-            confidence = float(p_final[pred_idx] * 100)
-            probabilities_dict = {CLASS_MAP[c]: float(p_final[j]) for j, c in enumerate(CLASSES)}
+            P_features = models["lightgbm"].predict_proba(model_features)
+            P_graphs = predict_gnn_dynamic(
+                non_whitelist_urls, 
+                df_features, 
+                models["gnn_model"], 
+                models["gnn_data"], 
+                models["gnn_mappings"]
+            )
             
-            responses.append(URLPredictionResponse(
-                predicted_class=CLASS_MAP[pred_label],
-                probabilities=probabilities_dict,
-                confidence_score=confidence,
-                processing_latency_ms=(time.time() - t_start) * 1000
-            ))
+            alpha = models["alpha"]
+            beta = 1.0 - alpha
+            P_finals = alpha * P_features + beta * P_graphs
+            P_finals = P_finals / np.sum(P_finals, axis=1, keepdims=True)
             
+            for local_idx, orig_idx in enumerate(non_whitelist_indices):
+                url = non_whitelist_urls[local_idx]
+                p_final = P_finals[local_idx]
+                p_final = apply_prediction_guard(url, p_final, models["gnn_mappings"]["domain_mapping"])
+                
+                pred_idx = np.argmax(p_final)
+                pred_label = CLASSES[pred_idx]
+                confidence = float(p_final[pred_idx] * 100)
+                probabilities_dict = {CLASS_MAP[c]: float(p_final[i]) for i, c in enumerate(CLASSES)}
+                
+                responses[orig_idx] = URLPredictionResponse(
+                    predicted_class=CLASS_MAP[pred_label],
+                    probabilities=probabilities_dict,
+                    confidence_score=confidence,
+                    processing_latency_ms=(time.time() - t_start) * 1000
+                )
+                
         return responses
     except HTTPException:
         raise

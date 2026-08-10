@@ -479,12 +479,64 @@ def predict_gnn_dynamic(urls: list, df_features: pd.DataFrame, gnn_model, gnn_da
             new_td_tensor = torch.tensor([new_td_src, new_td_dst], dtype=torch.long).to(device)
             gnn_data['tld', 'rev_belongs_to', 'domain'].edge_index = torch.cat([orig_td_edges, new_td_tensor], dim=1)
             
-        # Run forward pass through GraphSAGE
+        # Run forward pass through GraphSAGE using 2-hop localized subgraph extraction
         try:
             with torch.no_grad():
-                probs = gnn_model(gnn_data.x_dict, gnn_data.edge_index_dict)
-                # Extracted URL node predictions (last len(urls) elements)
-                predictions = probs[-len(urls):].cpu().numpy()
+                # Gather node indices involved in the 2-hop neighborhood of query URLs
+                new_url_indices = list(range(orig_url_count, orig_url_count + len(urls)))
+                
+                sub_domains = set()
+                sub_tlds = set()
+                
+                # Retrieve connections from the newly added edges mapping
+                for d in new_ud_dst:
+                    sub_domains.add(d)
+                for t in new_dt_dst:
+                    sub_tlds.add(t)
+                
+                edge_index_ud = gnn_data['url', 'belongs_to', 'domain'].edge_index
+                edge_index_dt = gnn_data['domain', 'belongs_to', 'tld'].edge_index
+                
+                # 1-hop: find domains belonging to these URLs
+                mask_url = (edge_index_ud[0] >= orig_url_count)
+                connected_domains = edge_index_ud[1][mask_url].unique().cpu().numpy().tolist()
+                for d in connected_domains:
+                    sub_domains.add(d)
+                    
+                # 2-hop: find TLDs connected to these domains
+                mask_domain_tld = torch.zeros(edge_index_dt.shape[1], dtype=torch.bool, device=device)
+                for d in sub_domains:
+                    mask_domain_tld = mask_domain_tld | (edge_index_dt[0] == d)
+                connected_tlds = edge_index_dt[1][mask_domain_tld].unique().cpu().numpy().tolist()
+                for t in connected_tlds:
+                    sub_tlds.add(t)
+                    
+                # Find all URLs connected to these domains (to compute exact message passing)
+                mask_ud = torch.zeros(edge_index_ud.shape[1], dtype=torch.bool, device=device)
+                for d in sub_domains:
+                    mask_ud = mask_ud | (edge_index_ud[1] == d)
+                connected_urls = edge_index_ud[0][mask_ud].unique().cpu().numpy().tolist()
+                
+                # Construct the subgraph node index dictionary
+                sub_idx = {
+                    'url': torch.tensor(sorted(list(set(new_url_indices + connected_urls))), dtype=torch.long, device=device),
+                    'domain': torch.tensor(sorted(list(sub_domains)), dtype=torch.long, device=device),
+                    'tld': torch.tensor(sorted(list(sub_tlds)), dtype=torch.long, device=device)
+                }
+                
+                # Extract localized subgraph
+                sub_data = gnn_data.subgraph(sub_idx)
+                
+                # Run localized forward pass
+                probs = gnn_model(sub_data.x_dict, sub_data.edge_index_dict)
+                
+                # Extract predictions for the query URLs by mapping their local index
+                predictions_list = []
+                for u_idx in new_url_indices:
+                    local_idx = (sub_idx['url'] == u_idx).nonzero(as_tuple=True)[0].item()
+                    predictions_list.append(probs[local_idx].cpu().numpy())
+                
+                predictions = np.stack(predictions_list)
         finally:
             # Enforce rollback of GNN data graph to isolate session states
             gnn_data['url'].x = orig_url_x
