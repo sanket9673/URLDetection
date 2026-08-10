@@ -25,7 +25,7 @@ By combining these predictions via **Probability Ensemble Fusion**, the hybrid s
 
 ---
 
-## 2. Key Engineering Highlights (Recruiter USPs)
+## 2. Key Engineering Highlights
 
 *   **Vectorized Feature Processing**: Built entirely on Pandas and NumPy vectorized operations with zero row-loop overhead, extracting 40 lexical features (structural, statistical, and suspicious patterns) in milliseconds.
 *   **Inductive Topological Reasoning**: Employs PyTorch Geometric ($PyG$) to construct a bipartite heterogeneous graph ($URL \rightarrow Domain \rightarrow TLD$). The GNN learns neighborhood aggregation functions ($SAGEConv$) rather than transductive node lookups, enabling robust threat classification of completely unseen zero-day domains.
