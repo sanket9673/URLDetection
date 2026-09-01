@@ -18,19 +18,19 @@ Standard security mechanisms—such as static blocklists and rule-based lexical 
 
 ### The Dual-Engine Solution
 This repository implements a production-grade, dual-engine intelligence framework that analyzes URLs from two complementary perspectives:
-1. **High-Speed Lexical Trees (LightGBM)**: Performs rapid character-level, statistical, and structural feature parsing directly on raw URL strings.
-2. **Inductive Topological Neighborhood Aggregation (Heterogeneous GraphSAGE via PyTorch Geometric)**: Represents domain ecosystems as multipartite graph networks to capture structural infrastructure similarities, propagating reputation and risk metrics across domain neighbors.
+1. **High-Speed Lexical Trees (LightGBM)**: Performs rapid character-level, statistical, and structural feature parsing (118 extracted attributes) directly on raw URL strings.
+2. **Inductive Topological Neighborhood Aggregation (Heterogeneous GraphSAGE via PyTorch Geometric)**: Represents domain ecosystems as multipartite graph networks (632,844 URL nodes, 155,724 Domain nodes, 882 TLD nodes) to capture structural infrastructure similarities, propagating reputation and risk metrics across domain neighbors.
 
-By combining these predictions via **Probability Ensemble Fusion**, the hybrid system achieves a state-of-the-art **Macro F1 Score of 0.9499** on a dataset of **651,191 URLs**, outperforming single-model baselines particularly on unseen zero-day domain distributions.
+By combining these predictions via **Probability Ensemble Fusion**, the hybrid system achieves a state-of-the-art **Macro F1 Score of 0.9715** (Test Accuracy of **98.76%**) on a dataset of **632,844 URLs**, outperforming single-model baselines particularly on unseen zero-day domain distributions.
 
 ---
 
 ## 2. Key Engineering Highlights
 
-*   **Vectorized Feature Processing**: Built entirely on Pandas and NumPy vectorized operations with zero row-loop overhead, extracting 40 lexical features (structural, statistical, and suspicious patterns) in milliseconds.
+*   **Vectorized Feature Processing**: Built entirely on Pandas and NumPy vectorized operations with zero row-loop overhead, extracting 118 lexical features (structural, statistical, entropy, and suspicious patterns) in milliseconds.
 *   **Inductive Topological Reasoning**: Employs PyTorch Geometric ($PyG$) to construct a bipartite heterogeneous graph ($URL \rightarrow Domain \rightarrow TLD$). The GNN learns neighborhood aggregation functions ($SAGEConv$) rather than transductive node lookups, enabling robust threat classification of completely unseen zero-day domains.
 *   **Dataset Bias Mitigation (`fix_data.py`)**: Includes automated pre-processing logic to prevent the models from developing artificial dependency on protocol prefixes (`http://` vs `https://`) or trailing paths, forcing the classifiers to learn true structural features.
-*   **Ensemble Probability Fusion**: Dynamically blends the continuous probability output vectors of the LightGBM classifier ($P_{lexical}$) and the GraphSAGE model ($P_{gnn}$) using tuned alpha blending ($\alpha = 0.7$) to maximize classification robustness across four target threat categories: *Benign, Phishing, Defacement, and Malware*.
+*   **Ensemble Probability Fusion**: Dynamically blends the continuous probability output vectors of the LightGBM classifier ($P_{lexical}$) and the GraphSAGE model ($P_{gnn}$) using tuned alpha blending ($\alpha = 0.7, \beta = 0.3$) to maximize classification robustness across four target threat categories: *Benign, Phishing, Defacement, and Malware*.
 *   **Real-Time Streamlit Interface with Memory Isolation**: The live inference dashboard features transient graph node injection. When an unseen zero-day domain is queried, it dynamically updates the in-memory graph, runs forward-pass GNN inferences, and executes an immediate state rollback to prevent memory leaks and graph pollution.
 
 ---
@@ -57,7 +57,7 @@ graph TD;
     end
     
     subgraph Streams ["Parallel Feature Engineering Streams"]
-        LexicalBuilder["feature_builder.py<br>(Vectorized Lexical Parsing)"]:::engineering
+        LexicalBuilder["feature_builder.py<br>(Vectorized Lexical Parsing - 118 Features)"]:::engineering
         ParquetLex[("Lexical Dataset<br>feature_dataset.parquet")]:::raw
         
         GraphBuilder["gnn_train.py<br>(Bipartite HeteroGraph Construction)"]:::engineering
@@ -73,7 +73,7 @@ graph TD;
     end
     
     subgraph Fusion ["Decision & Probability Fusion"]
-        HybridFusion["hybrid_fusion.py<br>(Dynamic Alpha-Blending)"]:::fusion
+        HybridFusion["hybrid_fusion.py<br>(Dynamic Alpha-Blending alpha=0.7)"]:::fusion
         Evaluator["evaluate_system.py<br>(Holistic Performance Audit)"]:::fusion
         FinalMetrics[("Final Reports<br>final_comparison.json")]:::raw
     end
@@ -117,7 +117,7 @@ graph TD;
 
 ## 4. Project Directory Architecture
 
-The repository's structure is clean and modular, separating feature engineering, model training, evaluation, and dashboard logic.
+The repository's structure is clean and modular, separating feature engineering, model training, evaluation, visualization, and dashboard logic.
 
 ```text
 HybridURLIntelligence/
@@ -127,13 +127,14 @@ HybridURLIntelligence/
 │   └── config.yaml                  # System paths and pipeline parameters configuration
 ├── data/
 │   ├── raw/
-│   │   ├── malicious_phish.csv       # Raw Kaggle URL dataset (651,191 rows)
-│   │   └── malicious_phish_fixed.csv # Standardized dataset with protocol bias mitigated
+│   │   ├── .gitkeep                 # Folder structure marker
+│   │   └── malicious_phish.csv       # Raw Kaggle URL dataset (632,844 rows)
 │   └── processed/
-│       ├── feature_dataset.parquet   # Vectorized lexical features (40 dimensions)
-│       ├── graph_features.parquet    # Domain-level statistical features (fallback)
+│       ├── .gitkeep                 # Folder structure marker
+│       ├── feature_dataset.parquet   # Vectorized lexical features (118 dimensions)
 │       └── gnn_features.parquet      # Inductive GNN class probabilities dataset
 ├── models/
+│   ├── .gitkeep                     # Folder structure marker
 │   ├── lightgbm_model.pkl            # Trained LightGBM lexical classifier model weights
 │   ├── graphsage_model.pth           # Trained HeteroGraphSAGE state dictionary weights
 │   ├── gnn_graph_data.pt             # Serialized PyTorch Geometric HeteroData topology
@@ -143,15 +144,20 @@ HybridURLIntelligence/
 │   ├── hybrid_metrics.json           # Raw Hybrid Fusion alpha-tuning and test scores
 │   ├── reports/
 │   │   ├── final_comparison.json     # Final benchmark comparison JSON
-│   │   └── final_report.txt          # Detailed plain-text evaluation summary
+│   │   ├── final_report.txt          # Detailed plain-text evaluation summary
+│   │   ├── class_imbalance_audit_report.txt # Class imbalance & inverse weighting audit
+│   │   ├── gnn_topology_visualization.html  # Interactive GNN node topology report
+│   │   └── domain_graph_concept.html        # Interactive domain risk propagation concept
 │   ├── plots/
 │   │   ├── lightgbm_roc.png          # Receiver Operating Characteristic curve plot
 │   │   └── feature_importance.png    # Top 20 LightGBM feature importance plot
 │   └── confusion_matrices/
 │       └── lightgbm_confusion.png    # Heatmap visualization of model classification
+├── results/
+│   └── experiment_YYYYMMDD_HHMMSS/   # Versioned experiment archive folder
 ├── src/
 │   ├── feature_engineering/
-│   │   └── feature_builder.py        # Vectorized lexical feature extraction (40 attributes)
+│   │   └── feature_builder.py        # Vectorized lexical feature extraction (118 attributes)
 │   ├── models/
 │   │   └── lightgbm_train.py         # LightGBM classifier training with stratified splits
 │   ├── graph/
@@ -160,11 +166,17 @@ HybridURLIntelligence/
 │   ├── fusion/
 │   │   └── hybrid_fusion.py          # Probability blending (alpha * P_lexical + beta * P_gnn)
 │   ├── evaluation/
-│   │   └── evaluate_system.py        # Holistic system evaluation and metric logger
+│   │   ├── evaluate_system.py        # Holistic system evaluation and metric logger
+│   │   ├── audit_class_imbalance.py  # Inverse weight calculation & imbalance audit
+│   │   └── save_experiment_results.py# Experiment archiver script
+│   ├── visualization/
+│   │   ├── plot_gnn_topology.py      # GNN structural topology rendering script
+│   │   └── plot_graph_concept.py     # Domain propagation concept rendering script
 │   ├── logger_config.py              # Centralized logging configuration
 │   └── utils.py                      # Reusable helper utilities
+├── tests/                            # Pytest unit and integration test suite
 ├── fix_data.py                       # Data preprocessing & bias mitigation script
-├── run_pipeline.py                   # Sequential execution orchestrator (pipeline runner)
+├── run_pipeline.py                   # Sequential execution orchestrator with auto-recovery
 └── requirements.txt                  # Python dependencies declaration file
 ```
 
@@ -172,26 +184,36 @@ HybridURLIntelligence/
 
 ## 5. System Benchmark & Evaluation Results
 
-Testing was performed using a stratified split (70% Train, 15% Validation, 15% Test) across all **651,191 URL samples**.
+Testing was performed using a stratified split (70% Train, 15% Validation, 15% Test) across all **632,844 URL samples**.
 
 ### Summary Performance Comparison
 
-| Model Architecture | Accuracy | Macro F1 Score | Latency per URL | Classification Strength / Weakness |
+| Model Architecture | Test Accuracy | Macro F1 Score | Weighted F1 | Classification Strength / Characteristic |
 | :--- | :--- | :--- | :--- | :--- |
-| **LightGBM (Lexical Baseline)** | 90.94% | 88.35% | **< 1.0 ms** | Fast inference; strong on structural keyword attacks; fails on zero-day domains. |
-| **HeteroGraphSAGE (Graph Engine)**| 93.72% | 92.10% | ~45.0 ms | Outstanding zero-day generalizing; models structural connectivity; higher latency. |
-| **Hybrid Ensemble Fusion ($\alpha = 0.7$)** | **94.17%** | **94.99%** | ~46.0 ms | Combines lexical speed with topological resilience; maximum robustness. |
+| **LightGBM (Lexical Baseline)** | **98.76%** | **0.9709** | **0.9876** | Fast inference (< 1 ms); strong on lexical/structural traits. |
+| **HeteroGraphSAGE (Graph Engine)**| 95.14% | 0.9369 | 0.9510 | Outstanding zero-day generalization via topological risk propagation. |
+| **Hybrid Ensemble Fusion ($\alpha = 0.7$)** | **98.76%** | **0.9715** | **0.9876** | Fuses lexical speed with graph structural resilience for maximum F1 accuracy. |
 
-### LightGBM Base Per-Class Performance
-On lexical features alone, classification is highly accurate on defacements and malware, but phishing URLs exhibit elevated false negative rates.
+### Dataset Class Distribution & Inverse Weights
 
-*   **Benign**: F1-Score: `0.9612`
-*   **Defacement**: F1-Score: `0.9682`
-*   **Phishing**: F1-Score: `0.8296`
-*   **Malware**: F1-Score: `0.9630`
+The dataset exhibits strong real-world class imbalance, handled automatically during LightGBM training via inverse class weighting ($w_j = \frac{N}{4 \cdot N_j}$):
+
+| Class | Count ($N_j$) | Percentage | Inverse Weight ($w_j$) |
+| :--- | :--- | :--- | :--- |
+| **Benign** | 422,241 | 66.72% | 0.3747x |
+| **Defacement** | 95,285 | 15.06% | 1.6604x |
+| **Phishing** | 91,741 | 14.50% | 1.7245x |
+| **Malware** | 23,577 | 3.73% | 6.7104x |
+
+### Per-Class Performance Breakdown
+
+*   **Benign**: Precision: `0.9990`, Recall: `0.9963`, F1-Score: **`0.9976`**
+*   **Defacement**: Precision: `0.9552`, Recall: `0.9912`, F1-Score: **`0.9728`**
+*   **Phishing**: Precision: `0.9760`, Recall: `0.9591`, F1-Score: **`0.9675`**
+*   **Malware**: Precision: `0.9642`, Recall: `0.9282`, F1-Score: **`0.9458`**
 
 ### Why the Hybrid Model Outperforms Single Models
-Traditional ML models suffer from an out-of-vocabulary penalty for new domains, resulting in blind classification. HeteroGraphSAGE resolves this by aggregating features from connected components (e.g., sharing a rare TLD suffix or pointing to clean/malicious server subdomains). When fused, the lexical model handles easy, fast structural matching, while the graph model boosts detection on complex, evasive phishing domains.
+Accuracy (98.76%) and Weighted F1 (98.76%) are dominated by the majority Benign class (66.72%). Macro F1 (97.09% Baseline $\rightarrow$ 97.15% Hybrid) treats all 4 classes equally, proving that the minority Malware class (only 3.73% of dataset) maintains an outstanding F1-score of **0.9458** without being drowned out.
 
 ---
 
@@ -214,42 +236,36 @@ pip install -r requirements.txt
 ```
 
 ### 2. Execute the Full End-to-End Pipeline
-Run the central pipeline coordinator script, which cleans the dataset, extracts lexical and topological features, trains both classifiers, runs probability fusion, and logs comparison reports:
+Run the central pipeline coordinator script with automatic dataset check and recovery:
 
 ```bash
 python run_pipeline.py
 ```
 
-### 3. Launch the Live Streamlit Web UI
+### 3. Run System Evaluation, Plots, Visualizations & Archiving
+Execute the complete evaluation report, GNN topology rendering, and experiment archiving scripts:
+
+```bash
+PYTHONPATH=. python src/evaluation/evaluate_system.py
+PYTHONPATH=. python src/visualization/plot_gnn_topology.py
+PYTHONPATH=. python src/visualization/plot_graph_concept.py
+PYTHONPATH=. python src/evaluation/audit_class_imbalance.py
+PYTHONPATH=. python src/evaluation/save_experiment_results.py
+```
+
+### 4. Launch the Live Streamlit Web UI
 Start the interactive Streamlit threat dashboard:
 
 ```bash
 streamlit run app/dashboard.py
 ```
 
-### 4. Running Individual Modules
-For developer testing, run specific pipeline modules independently:
+### 5. Running Pytest Suite
+Run unit and integration tests:
 
-*   **Dataset Bias Cleaning**:
-    ```bash
-    python fix_data.py
-    ```
-*   **Lexical Feature Generation**:
-    ```bash
-    PYTHONPATH=. python src/feature_engineering/feature_builder.py
-    ```
-*   **LightGBM Training**:
-    ```bash
-    PYTHONPATH=. python src/models/lightgbm_train.py
-    ```
-*   **GraphSAGE GNN Training**:
-    ```bash
-    PYTHONPATH=. python src/graph/gnn_train.py
-    ```
-*   **Evaluation System**:
-    ```bash
-    PYTHONPATH=. python src/evaluation/evaluate_system.py
-    ```
+```bash
+PYTHONPATH=. pytest
+```
 
 ---
 
@@ -260,7 +276,7 @@ To guarantee clean scientific results, all domain reputation counts, TLD probabi
 
 ### Memory & Computation Optimization
 - **Vectorized DataFrames**: Replaced inefficient row-by-row regex iterations with Pandas vectorizations, reducing memory overhead and accelerating preprocessing runtime.
-- **CPU/GPU Tensor Conversions**: GNN topology is loaded on GPU (CUDA/MPS) if available, but predictions are converted to NumPy CPU matrices before hybrid fusion.
+- **CPU/GPU Tensor Conversions**: GNN topology is loaded on GPU (CUDA/MPS) if available, but predictions are converted to CPU NumPy matrices before hybrid fusion.
 - **Parquet Storage**: Datasets are serialized in Apache Parquet format to ensure speed, type-safety, and minimal disk storage.
 
 ---
