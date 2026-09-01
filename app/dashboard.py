@@ -770,6 +770,7 @@ if st.session_state.analyze_triggered and url_query:
             if df_features is not None:
                 df_f = df_features.T.rename(columns={0: "Feature Value"})
                 df_f.index.name = "Feature Name"
+                df_f["Feature Value"] = df_f["Feature Value"].astype(str)
                 st.dataframe(df_f, use_container_width=True)
             else:
                 st.info("No lexical features available (Clean bypass active).")

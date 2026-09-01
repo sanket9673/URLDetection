@@ -173,9 +173,9 @@ class FeatureBuilder:
         df['double_slash_count'] = df['double_slash_count'].clip(lower=0)
         
         # Additional suspicious
-        df['is_shortened'] = domain_extracted.str.contains(r'(bit\.ly|goo\.gl|t\.co|ow\.ly|is\.gd|tinyurl|tr\.im)').astype(int)
-        df['has_exe_or_zip'] = df['url'].str.contains(r'(?i)(\.exe|\.zip|\.rar|\.tar|\.gz|\.7z)').astype(int)
-        df['suspicious_tld'] = domain_extracted.str.contains(r'(?i)(\.top|\.xyz|\.club|\.site|\.online|\.pro|\.pw)').astype(int)
+        df['is_shortened'] = domain_extracted.str.contains(r'(?:bit\.ly|goo\.gl|t\.co|ow\.ly|is\.gd|tinyurl|tr\.im)', regex=True).astype(int)
+        df['has_exe_or_zip'] = df['url'].str.contains(r'(?i)(?:\.exe|\.zip|\.rar|\.tar|\.gz|\.7z)', regex=True).astype(int)
+        df['suspicious_tld'] = domain_extracted.str.contains(r'(?i)(?:\.top|\.xyz|\.club|\.site|\.online|\.pro|\.pw)', regex=True).astype(int)
         df['multiple_subdomains'] = (df['subdomain_count'] > 2).astype(int)
 
         return df
