@@ -1,36 +1,34 @@
-# Byte-compiled / optimized / DLL files
+# Python & Byte-compiled files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
-*.so
+.DS_Store
 
 # Virtual environments
 venv/
 env/
-ENV/
-env.bak/
-venv.bak/
+.env
 
-# Heavy Datasets (Ignore raw CSVs & processed Parquet files)
+# Ignore heavy raw dataset, processed Parquet, and trained weights
 data/raw/*.csv
 data/processed/*.parquet
-
-# Heavy Model Binary Artifacts (Upload these to GitHub Releases instead)
 models/*.pkl
 models/*.pth
 models/*.pt
 
-# Temporary logs & cache
-logs/*.log
-.DS_Store
-.idea/
-.vscode/
+# Ignore generated outputs, logs, and experiment archives
+outputs/
+results/
+logs/
 
-# Preserve directory structures (Do NOT ignore .gitkeep files)
+# Preserve folder structure on GitHub using .gitkeep
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !models/.gitkeep
-!outputs/**
-!results/**
+!outputs/reports/.gitkeep
+!outputs/plots/.gitkeep
+!outputs/confusion_matrices/.gitkeep
+!outputs/feature_importance/.gitkeep
+!outputs/experiment_logs/.gitkeep
+!logs/.gitkeep
+!results/.gitkeep

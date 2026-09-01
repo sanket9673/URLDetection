@@ -69,6 +69,18 @@ def print_final_results(base_dir: str):
         logger.error(f"Unexpected error while printing final results: {e}")
         sys.exit(1)
 
+def check_and_download_dataset(base_dir: str):
+    raw_csv = os.path.join(base_dir, "data", "raw", "malicious_phish.csv")
+    if not os.path.exists(raw_csv):
+        logger.warning(f"Raw dataset missing at {raw_csv}. Auto-creating directories...")
+        os.makedirs(os.path.dirname(raw_csv), exist_ok=True)
+        print("\n" + "="*70)
+        print("⚠️ RAW DATASET MISSING: Please download 'MUD_malicious_urls_2026_V2.csv' from Kaggle:")
+        print("   https://www.kaggle.com/datasets/moutasmtamimi/malicious-url-detection-dataset-enhanced-2026")
+        print("   and place it at: data/raw/malicious_phish.csv")
+        print("="*70 + "\n")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(description="Hybrid URL Intelligence pipeline orchestrator")
     parser.add_argument("--mode", type=str, choices=['gnn', 'legacy'], default='gnn', help="Graph model mode ('gnn' or 'legacy')")
@@ -78,6 +90,7 @@ def main():
 
     logger.info("Initializing Full Detection Pipeline")
     base_dir = os.path.dirname(os.path.abspath(__file__))
+    check_and_download_dataset(base_dir)
     
     fixed_dataset_path = os.path.join(base_dir, "data", "raw", "malicious_phish_fixed.csv")
     raw_dataset_path = os.path.join(base_dir, "data", "raw", "malicious_phish.csv")
