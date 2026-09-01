@@ -6,26 +6,6 @@ __pycache__/
 # C extensions
 *.so
 
-# Distribution / packaging
-bin/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
 # Virtual environments
 venv/
 env/
@@ -33,12 +13,24 @@ ENV/
 env.bak/
 venv.bak/
 
-# Project specific
-data/
-models/
-outputs/
-results/
-logs/
+# Heavy Datasets (Ignore raw CSVs & processed Parquet files)
+data/raw/*.csv
+data/processed/*.parquet
 
-# MacOS
+# Heavy Model Binary Artifacts (Upload these to GitHub Releases instead)
+models/*.pkl
+models/*.pth
+models/*.pt
+
+# Temporary logs & cache
+logs/*.log
 .DS_Store
+.idea/
+.vscode/
+
+# Preserve directory structures (Do NOT ignore .gitkeep files)
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!models/.gitkeep
+!outputs/**
+!results/**

@@ -1,0 +1,9 @@
+2026-09-02 02:09:11,004 - INFO - Experiment directory created at: results/experiment_20260902_020911
+2026-09-02 02:09:11,005 - INFO - Saved core metrics to: results/experiment_20260902_020911/metrics/final_metrics.json
+2026-09-02 02:09:11,005 - INFO - Copied outputs/plots/lightgbm_roc.png to plots/lightgbm_roc.png
+2026-09-02 02:09:11,005 - INFO - Copied outputs/plots/feature_importance.png to plots/feature_importance.png
+2026-09-02 02:09:11,005 - INFO - Copied outputs/confusion_matrices/lightgbm_confusion.png to confusion_matrices/lightgbm_confusion.png
+2026-09-02 02:09:11,005 - INFO - Copied outputs/feature_importance/top_features.csv to feature_importance/top_features.csv
+2026-09-02 02:09:11,025 - INFO - Saved system metadata to results/experiment_20260902_020911/metadata/system_info.json
+2026-09-02 02:09:11,025 - INFO - Generated summary report at results/experiment_20260902_020911/summary_report.txt
+2026-09-02 02:09:11,025 - INFO - Experiment setup complete in 0.02s

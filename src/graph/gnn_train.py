@@ -75,8 +75,9 @@ def prepare_hetero_graph(df_path="data/processed/feature_dataset.parquet", targe
         target_col = 'label'
         
     # Exclude non-feature columns for URL nodes
-    exclude_cols = ['url', 'type', target_col, 'label']
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
+    exclude_cols = ['url', 'type', target_col, 'label', 'registered_domain', 'tld']
+    numeric_df = df.select_dtypes(include=['number', 'bool'])
+    feature_cols = [c for c in numeric_df.columns if c not in exclude_cols]
     
     # 1. Extract Domains and TLDs
     domains = []
@@ -100,13 +101,13 @@ def prepare_hetero_graph(df_path="data/processed/feature_dataset.parquet", targe
     num_tlds = len(tld_mapping)
     
     # 3. Form URL Features
-    url_features = torch.tensor(df[feature_cols].values, dtype=torch.float)
+    url_feats_np = df[feature_cols].astype(np.float32).values
+    url_features = torch.tensor(url_feats_np, dtype=torch.float)
     
     # 4. Form Domain Features (Aggregated Lexical Features of Connected URLs)
     logger.info("Aggregating URL traits for Domain Embeddings...")
     domain_features_np = np.zeros((num_domains, len(feature_cols)))
     domain_counts = np.zeros((num_domains, 1))
-    url_feats_np = df[feature_cols].values
     
     for i, dom in enumerate(df['registered_domain']):
         d_idx = domain_mapping[dom]

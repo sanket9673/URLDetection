@@ -1,0 +1,9 @@
+{
+    "lightgbm_macro_f1": 0.9709341568358326,
+    "hybrid_macro_f1": 0.9714776738540558,
+    "improvement_percent": 0.05597877203068601,
+    "dataset_size": 632844,
+    "num_features": 137,
+    "num_domains": 0,
+    "timestamp": "2026-09-02 02:08:56"
+}

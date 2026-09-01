@@ -1,0 +1,11 @@
+{
+    "python_version": "3.13.5",
+    "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+    "cpu_info": "arm",
+    "total_ram_gb": 16.0,
+    "peak_memory_used_mb": 178.61,
+    "model_file_size_mb": 2.04,
+    "lightgbm_version": "4.6.0",
+    "pandas_version": "2.3.2",
+    "numpy_version": "2.2.6"
+}

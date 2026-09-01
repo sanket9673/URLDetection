@@ -1,0 +1,13 @@
+{
+    "experiment_timestamp": "20260902_020911",
+    "dataset_size": 632844,
+    "num_features": 137,
+    "num_domains": 0,
+    "lightgbm_macro_f1": 0.9709341568358326,
+    "hybrid_macro_f1": 0.9714776738540558,
+    "improvement_percent": 0.05597877203068601,
+    "alpha_used": 0.7,
+    "model_file_size_mb": 2.0424203872680664,
+    "execution_time_seconds": 0.021077871322631836,
+    "peak_memory_mb": 178.61
+}

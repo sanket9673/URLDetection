@@ -82,6 +82,10 @@ def step1_init_and_check():
 def step2_load_data():
     data_path = "data/processed/graph_features.parquet"
     if not os.path.exists(data_path):
+        data_path = "data/processed/gnn_features.parquet"
+    if not os.path.exists(data_path):
+        data_path = "data/processed/feature_dataset.parquet"
+    if not os.path.exists(data_path):
         print(f"Error: Dataset {data_path} is missing!")
         sys.exit(1)
         
@@ -185,9 +189,10 @@ def step4_compare_hybrid(lgb_macro_f1):
         hybrid_metrics = json.load(f)
         
     # Get hybrid macro F1 score
-    hybrid_macro_f1 = hybrid_metrics.get("test_macro_f1", 
+    hybrid_macro_f1 = hybrid_metrics.get("test_f1",
+                      hybrid_metrics.get("test_macro_f1", 
                       hybrid_metrics.get("macro_f1", 
-                      hybrid_metrics.get("best_f1", 0.0)))
+                      hybrid_metrics.get("best_f1", 0.0))))
     
     if not hybrid_macro_f1:
         for k, v in hybrid_metrics.items():

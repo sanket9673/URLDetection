@@ -3,6 +3,7 @@ import time
 import logging
 import numpy as np
 import pandas as pd
+import re
 from src.logger_config import logger
 
 class FeatureBuilder:
@@ -21,7 +22,35 @@ class FeatureBuilder:
             'phishing': 2,
             'malware': 3
         }
-        
+
+    def sanitize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        char_map = {
+            '@': 'char_at',
+            '?': 'char_question',
+            '-': 'char_hyphen',
+            '=': 'char_equals',
+            '.': 'char_dot',
+            '#': 'char_hash',
+            '%': 'char_percent',
+            '+': 'char_plus',
+            '$': 'char_dollar',
+            '!': 'char_exclamation',
+            '*': 'char_asterisk',
+            ',': 'char_comma',
+            '//': 'char_double_slash'
+        }
+        def clean_col(c):
+            if c in ['url', 'type', 'target', 'label']:
+                return c
+            if c in char_map:
+                return char_map[c]
+            cleaned = re.sub(r'[^\w]', '_', c)
+            cleaned = re.sub(r'_+', '_', cleaned).strip('_')
+            return cleaned if cleaned else 'feat'
+            
+        rename_dict = {c: clean_col(c) for c in df.columns}
+        return df.rename(columns=rename_dict)
+
     def load_data(self) -> pd.DataFrame:
         """
         Loads CSV from raw data with memory error fallback to chunking.
@@ -56,6 +85,7 @@ class FeatureBuilder:
         df['url'] = df['url'].astype(str)
         # remove empty strings
         df = df[df['url'].str.strip() != '']
+        df = self.sanitize_column_names(df)
         logger.info(f"Cleaned malformed URLs. Shape changed from {initial_shape} to {df.shape}")
         return df.copy()
 

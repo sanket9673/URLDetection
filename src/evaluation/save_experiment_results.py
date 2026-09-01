@@ -87,7 +87,7 @@ def main():
             metrics_combined["hybrid"] = hyb_metrics
             
             # Extract hybrid macro f1 safely
-            hybrid_macro_f1 = hyb_metrics.get("test_macro_f1", hyb_metrics.get("macro_f1", hyb_metrics.get("best_f1", 0.0)))
+            hybrid_macro_f1 = hyb_metrics.get("test_f1", hyb_metrics.get("test_macro_f1", hyb_metrics.get("macro_f1", hyb_metrics.get("best_f1", 0.0))))
             if not hybrid_macro_f1:
                 for k, v in hyb_metrics.items():
                     if 'f1' in k.lower() and isinstance(v, float):
