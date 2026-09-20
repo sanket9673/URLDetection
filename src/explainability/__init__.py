@@ -24,6 +24,11 @@ from src.explainability.graph_rag import (
     SubgraphEdge,
     get_graph_rag_engine
 )
+from src.explainability.agentic_rag import (
+    AgenticRAGOrchestrator,
+    IncidentReport,
+    get_agentic_rag_orchestrator
+)
 
 __all__ = [
     "MitreMapper",
@@ -41,5 +46,8 @@ __all__ = [
     "StructuralIntelligence",
     "SubgraphNode",
     "SubgraphEdge",
-    "get_graph_rag_engine"
+    "get_graph_rag_engine",
+    "AgenticRAGOrchestrator",
+    "IncidentReport",
+    "get_agentic_rag_orchestrator"
 ]
