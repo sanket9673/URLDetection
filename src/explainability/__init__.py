@@ -16,6 +16,14 @@ from src.explainability.shap_engine import (
     CLASS_NAMES,
     CLASS_INDICES
 )
+from src.explainability.graph_rag import (
+    GraphRAGEngine,
+    GraphRAGContext,
+    StructuralIntelligence,
+    SubgraphNode,
+    SubgraphEdge,
+    get_graph_rag_engine
+)
 
 __all__ = [
     "MitreMapper",
@@ -27,5 +35,11 @@ __all__ = [
     "ShapEngine",
     "get_shap_engine",
     "CLASS_NAMES",
-    "CLASS_INDICES"
+    "CLASS_INDICES",
+    "GraphRAGEngine",
+    "GraphRAGContext",
+    "StructuralIntelligence",
+    "SubgraphNode",
+    "SubgraphEdge",
+    "get_graph_rag_engine"
 ]
